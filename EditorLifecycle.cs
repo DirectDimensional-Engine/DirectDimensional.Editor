@@ -9,18 +9,9 @@ using static StbTrueTypeSharp.StbTrueType;
 
 namespace DirectDimensional.Editor {
     internal unsafe static class EditorLifecycle {
-        private static HorizontalTextAnchor hanchor = HorizontalTextAnchor.Left;
-        private static VerticalTextAnchor vanchor = VerticalTextAnchor.Top;
-
         public static void Initialize() {
             ImGuiEngine.Initialize();
-
-            KeyboardAxisRegister.Register(0, KeyboardCode.Left, KeyboardCode.Right);
-            KeyboardAxisRegister.Register(1, KeyboardCode.Down, KeyboardCode.Up);
         }
-
-        private static int repeat = 0;
-        private static float height = 300;
 
         public static void Cycle() {
             ImGuiEngine.NewFrame();
