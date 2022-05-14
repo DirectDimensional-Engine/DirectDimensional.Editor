@@ -4,23 +4,19 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using DirectDimensional.Core;
 using StbTrueTypeSharp;
-using StbImageWriteSharp;
-using StbImageSharp;
 using DirectDimensional.Bindings;
 using DirectDimensional.Bindings.Direct3D11;
 using DirectDimensional.Bindings.DXGI;
 
 using static StbTrueTypeSharp.StbTrueType;
-using static StbImageSharp.StbImage;
-using static StbImageWriteSharp.StbImageWrite;
 using D3D11Texture2D = DirectDimensional.Bindings.Direct3D11.Texture2D;
 
 namespace DirectDimensional.Editor {
     internal static unsafe class EditorResources {
-        public const float FontPixelHeight = 16;
+        public const float FontPixelHeight = 14;
 
         public static D3D11Texture2D FontBitmap { get; private set; } = null!;
-        public static ShaderResourceView FontShaderResource { get; private set; } = null!;
+        public static ShaderResourceView FontTextureView { get; private set; } = null!;
         public static stbtt_fontinfo FontInfo { get; private set; }
 
         public static stbtt_packedchar[] PackedChar { get; private set; }
@@ -89,7 +85,7 @@ namespace DirectDimensional.Editor {
                     sdesc.Texture2D.MipLevels = 1;
 
                     Direct3DContext.Device.CreateShaderResourceView(FontBitmap, &sdesc, out var fontView).ThrowExceptionIfError();
-                    FontShaderResource = fontView!;
+                    FontTextureView = fontView!;
                 }
 
                 return true;
@@ -103,7 +99,7 @@ namespace DirectDimensional.Editor {
 
         public static void Shutdown() {
             FontBitmap.CheckAndRelease();
-            FontShaderResource.CheckAndRelease();
+            FontTextureView.CheckAndRelease();
         }
     }
 }

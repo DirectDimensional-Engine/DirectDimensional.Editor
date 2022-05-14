@@ -2,28 +2,62 @@
 
 namespace DirectDimensional.Editor.GUI {
     public static class Identifier {
-        private static int _cacheIdentifierHash;
-
-        public static int ActiveID { get; private set; }
         public static int HoveringID { get; private set; }
+        public static int ActiveID { get; private set; }
 
-        public static int CurrentIdentifierHash => _cacheIdentifierHash;
+        public static bool Hovering => HoveringID != 0 && HoveringID == _current;
+        public static bool Activating => ActiveID != 0 && ActiveID == _current;
 
-        private static readonly Stack<string> _identifierStack;
+        private static int _current;
+        public static int Current => _current;
+
+        private static readonly Stack<int> _identifierStack;
 
         static Identifier() {
             _identifierStack = new(16);
         }
 
-        public static void PushIdentifier(string id) {
+        public static int Calculate(int id) {
+            HashCode hashCombiner = new();
+            hashCombiner.Add(id);
+
+            foreach (var _id in _identifierStack) {
+                hashCombiner.Add(_id);
+            }
+
+            return hashCombiner.ToHashCode();
+        }
+
+        public static int Calculate(string id) {
+            HashCode hashCombiner = new();
+            hashCombiner.Add(id.GetHashCode());
+
+            foreach (var _id in _identifierStack) {
+                hashCombiner.Add(_id);
+            }
+
+            return hashCombiner.ToHashCode();
+        }
+
+        public static void Push(string id) {
+            _identifierStack.Push(id.GetHashCode());
+            RecalculateHashCache();
+        }
+
+        public static void Push(ReadOnlySpan<char> id) {
+            _identifierStack.Push(id.ToString().GetHashCode());
+            RecalculateHashCache();
+        }
+
+        public static void Push(int id) {
             _identifierStack.Push(id);
 
             RecalculateHashCache();
         }
 
-        public static void PopIdentifier() {
+        public static void Pop() {
             if (_identifierStack.Count == 0) {
-                _cacheIdentifierHash = 0;
+                _current = 0;
 
                 return;
             }
@@ -32,64 +66,46 @@ namespace DirectDimensional.Editor.GUI {
             RecalculateHashCache();
         }
 
-        public static void PopIdentifier(int count) {
-            if (_identifierStack.Count == 0) {
-                _cacheIdentifierHash = 0;
-
-                return;
-            }
-
-            if (count < 0) {
-                _identifierStack.Clear();
-                return;
-            }
-
-            while (count > 0 && _identifierStack.Count > 0) {
-                _identifierStack.Pop();
-                count--;
-            }
-
-            RecalculateHashCache();
+        public static void SetActiveID() {
+            ActiveID = _current;
         }
 
-        public static void SetActiveID() {
-            ActiveID = CurrentIdentifierHash;
+        public static void SetActiveID(int value) {
+            ActiveID = value;
+        }
+
+        public static void SetHoveringID() {
+            HoveringID = _current;
+        }
+
+        public static void SetHoveringID(int id) {
+            HoveringID = id;
+        }
+
+        public static void ClearHoveringID() {
+            HoveringID = 0;
         }
 
         public static void ClearActiveID() {
             ActiveID = 0;
         }
 
-        public static bool IsIDActived() {
-            return ActiveID != 0 && ActiveID == CurrentIdentifierHash;
-        }
-
-        public static bool SetHoveringID() {
-            if (HoveringID == _cacheIdentifierHash) return false;
-
-            HoveringID = _cacheIdentifierHash;
-
-            return true;
-        }
-
-        public static bool ClearHoveringID() {
-            if (HoveringID == 0) return false;
-
-            HoveringID = 0;
-
-            return true;
-        }
-
         public static bool ClearCurrentHoveringID() {
-            if (HoveringID != CurrentIdentifierHash || HoveringID == 0) return false;
+            if (HoveringID != 0 && HoveringID == _current) {
+                HoveringID = 0;
+                return true;
+            }
 
-            HoveringID = 0;
-
-            return true;
+            return false;
         }
 
-        public static bool IsIDHovered() {
-            return HoveringID != 0 && HoveringID == CurrentIdentifierHash;
+        public static bool ClearCurrentActiveID() {
+            if (ActiveID != 0 && ActiveID == _current) {
+                ActiveID = 0;
+                return true;
+            }
+
+            return false;
         }
 
         private static void RecalculateHashCache() {
@@ -98,14 +114,13 @@ namespace DirectDimensional.Editor.GUI {
                 hashCombiner.Add(id);
             }
 
-            _cacheIdentifierHash = hashCombiner.ToHashCode();
+            _current = hashCombiner.ToHashCode();
         }
 
-        internal static void ValidateHashToPrepareFrame() {
-            if (_identifierStack.Count > 0) {
-                Logger.Warn("Editor: Identifier leak. Make sure you call " + nameof(Identifier.PushIdentifier) + " follow by the same number of " + nameof(Identifier.PopIdentifier) + ".");
-                _identifierStack.Clear();
-            }
+        internal static void ResetForNewFrame() {
+            _identifierStack.Clear();
+            _current = 0;
+            HoveringID = 0;
         }
     }
 }

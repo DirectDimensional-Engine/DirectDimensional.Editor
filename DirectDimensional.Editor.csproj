@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <OutputType>Exe</OutputType>
+    <RunAnalyzersDuringBuild>False</RunAnalyzersDuringBuild>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,20 +16,18 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="StbImageSharp" Version="2.27.8" />
-    <PackageReference Include="StbImageWriteSharp" Version="1.13.5" />
     <PackageReference Include="StbTrueTypeSharp" Version="1.26.9" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="DirectDimensional.Bindings">
-      <HintPath>..\DirectDimensional.Bindings\bin\Release\net6.0\DirectDimensional.Bindings.dll</HintPath>
+      <HintPath>..\DirectDimensional.Bindings\bin\Debug\net6.0\DirectDimensional.Bindings.dll</HintPath>
     </Reference>
     <Reference Include="DirectDimensional.Core">
-      <HintPath>..\DirectDimensional.Core\bin\Release\net6.0\DirectDimensional.Core.dll</HintPath>
+      <HintPath>..\DirectDimensional.Core\bin\Debug\net6.0\DirectDimensional.Core.dll</HintPath>
     </Reference>
     <Reference Include="DirectDimensional.Runtime">
-      <HintPath>..\DirectDimensional.Runtime\bin\Release\net6.0\DirectDimensional.Runtime.dll</HintPath>
+      <HintPath>..\DirectDimensional.Runtime\bin\Debug\net6.0\DirectDimensional.Runtime.dll</HintPath>
     </Reference>
   </ItemGroup>
 

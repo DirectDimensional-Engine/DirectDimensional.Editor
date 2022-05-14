@@ -2,316 +2,322 @@
 using DirectDimensional.Bindings.WinAPI;
 using DirectDimensional.Core.Utilities;
 using System.Numerics;
-using StbTrueTypeSharp;
+using System.Runtime.CompilerServices;
+using System.Diagnostics.CodeAnalysis;
+using DirectDimensional.Bindings.Direct3D11;
 
 using static StbTrueTypeSharp.StbTrueType;
 
+using DDTexture2D = DirectDimensional.Core.Texture2D;
+
 namespace DirectDimensional.Editor.GUI {
     public static unsafe class ImGui {
-        public static void DrawRect(Rect rect, Color32 color) {
-            var vcount = ImGuiContext.Vertices.Count;
-            var icount = ImGuiContext.Indices.Count;
+        private static readonly Stack<GuiWindow> _windowStack;
 
-            var min = rect.Min;
-            var max = rect.Max;
+        private static readonly List<StandardGuiWindow> _standardWnds;
+        private static readonly TooltipWindow _tooltipWnd;
 
-            ImGuiContext.Vertices.Add(new Vertex(min.V3(), color));
-            ImGuiContext.Vertices.Add(new Vertex(new Vector3(max.X, min.Y, 0), color));
-            ImGuiContext.Vertices.Add(new Vertex(max.V3(), color));
-            ImGuiContext.Vertices.Add(new Vertex(new Vector3(min.X, max.Y, 0), color));
+        internal static List<StandardGuiWindow> StandardWindows => _standardWnds;
+        internal static TooltipWindow TooltipWindow => _tooltipWnd;
 
-            ImGuiContext.Indices.Add((ushort)vcount);
-            ImGuiContext.Indices.Add((ushort)(vcount + 1));
-            ImGuiContext.Indices.Add((ushort)(vcount + 2));
-            ImGuiContext.Indices.Add((ushort)(vcount + 2));
-            ImGuiContext.Indices.Add((ushort)(vcount + 3));
-            ImGuiContext.Indices.Add((ushort)vcount);
+        private static GuiWindow? _focusWindow, _hoveringWindow;
+        public static GuiWindow? FocusingWindow => _focusWindow;
+        public static GuiWindow? CurrentWindow => _windowStack.Count == 0 ? null : _windowStack.Peek();
+        public static GuiWindow? HoveringWindow => _hoveringWindow;
 
-            ImGuiContext.DrawCalls.Add(new DrawCall {
-                IndexCount = 6,
-                IndexLocation = (ushort)icount,
-
-                ScissorsRect = ImGuiLowLevel.ScissorRect,
-            });
+        static ImGui() {
+            _windowStack = new();
+            _standardWnds = new(8);
+            _tooltipWnd = new("__TOOLTIP__");
         }
 
-        public static void DrawTexturedRect(Vertex topLeft, Vertex topRight, Vertex bottomRight, Vertex bottomLeft, Texture2D texture) {
-            if (!texture.IsRenderable) {
-                Logger.Warn("Texture used for rendering isn't flagged as Renderable");
+        internal static void NewFrame() {
+            if (_windowStack.Count != 0) {
+                Logger.Warn("Window stack isn't empty. Make sure you called end window functions with correspond begin window functions.");
+            }
+
+            _windowStack.Clear();
+        }
+
+        public static void FocusWindow(StandardGuiWindow? window) {
+            if (window != null && !window.IsFocusable) return;
+
+            _focusWindow = window;
+
+            if (window != null) {
+                _standardWnds.Remove(window);
+                _standardWnds.Add(window);
+            }
+        }
+
+        public static StandardGuiWindow? SearchStandardWindow(string name) {
+            for (int i = 0; i < _standardWnds.Count; i++) {
+                if (_standardWnds[i].Name == name) {
+                    return _standardWnds[i];
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Query focus window from last window to first window in the list
+        /// </summary>
+        /// <param name="predicate"></param>
+        public static void QueryFocusWindow(Func<StandardGuiWindow, bool> predicate) {
+            for (int i = _standardWnds.Count - 1; i >= 0; i--) {
+                if (!_standardWnds[i].IsFocusable) continue;
+
+                if (predicate(_standardWnds[i])) {
+                    FocusWindow(_standardWnds[i]);
+                    break;
+                }
+            }
+        }
+
+        internal static void UpdateHoveringWindow() {
+            var mp = Mouse.Position;
+
+            for (int i = _standardWnds.Count - 1; i >= 0; i--) {
+                var wnd = _standardWnds[i];
+                if (!_standardWnds[i].IsFocusable) continue;
+
+                if (mp.X >= wnd.Position.X && mp.Y >= wnd.Position.Y) {
+                    if (mp.X < wnd.Position.X + wnd.Size.X && mp.Y < wnd.Position.Y + wnd.Size.Y) {
+                        _hoveringWindow = wnd;
+                        return;
+                    }
+                }
+            }
+
+            _hoveringWindow = null;
+        }
+
+        public static bool CurrentWindowFocused => _focusWindow != null && _focusWindow == CurrentWindow;
+        public static bool CurrentWindowHovered => _hoveringWindow != null && CurrentWindow == _hoveringWindow;
+
+        public static float? NextWindowX { get; set; }
+        public static float? NextWindowY { get; set; }
+        public static float? NextWindowWidth { get; set; }
+        public static float? NextWindowHeight { get; set; }
+
+        private static void AssignNextWindowPos(GuiWindow wnd) {
+            if (NextWindowX != null) {
+                wnd.Position = new(NextWindowX.Value, wnd.Position.Y);
+                NextWindowX = null;
+            }
+
+            if (NextWindowY != null) {
+                wnd.Position = new(wnd.Position.X, NextWindowY.Value);
+                NextWindowY = null;
+            }
+        }
+        private static void AssignNextWindowSize(GuiWindow wnd) {
+            if (NextWindowWidth != null) {
+                wnd.Size = new(NextWindowWidth.Value, wnd.Size.Y);
+                NextWindowWidth = null;
+            }
+
+            if (NextWindowHeight != null) {
+                wnd.Size = new(wnd.Size.X, NextWindowHeight.Value);
+                NextWindowHeight = null;
+            }
+        }
+
+#pragma warning disable CS8774
+        [MemberNotNull(nameof(CurrentWindow))]
+        public static void BeginStandardWindow(string name, StandardWindowFlags flags = StandardWindowFlags.None) {
+            if (_windowStack.Count != 0) {
+                Logger.Error("Cannot Begin Standard Window as the window stack isn't empty.");
                 return;
             }
 
-            ImGuiLowLevel.DrawTexturedRect(topLeft, topRight, bottomRight, bottomLeft, texture.DXSRV, texture.DXSampler);
-        }
+            if (SearchStandardWindow(name) is not StandardGuiWindow wnd) {
+                wnd = new(name);
+                _standardWnds.Add(wnd);
+            }
 
-        public static void AddCompositeRect(Rect rect, Color32 color) {
-            var vcount = ImGuiContext.Vertices.Count;
+            wnd.Flags = flags;
 
-            var min = rect.Min;
-            var max = rect.Max;
+            AssignNextWindowPos(wnd);
+            AssignNextWindowSize(wnd);
 
-            ImGuiLowLevel.AddVertices(new Vertex(min.V3(), color));
-            ImGuiLowLevel.AddVertices(new Vertex(new Vector3(max.X, min.Y, 0), color));
-            ImGuiLowLevel.AddVertices(new Vertex(new Vector3(max, 0), color));
-            ImGuiLowLevel.AddVertices(new Vertex(new Vector3(min.X, max.Y, 0), color));
+            _windowStack.Push(wnd);
 
-            ImGuiLowLevel.AddIndices(vcount, vcount + 1, vcount + 2, vcount + 2, vcount + 3, vcount);
-        }
+            if (wnd.LastRenderingFrame != EditorApplication.FrameCount - 1) {
+                FocusWindow(wnd);
+            }
 
-        public static bool ResponsiveHoveringArea(string id, Rect rect, StandardCursorID cursor) {
-            bool hover = false;
-            Identifier.PushIdentifier(id);
+            wnd.LastRenderingFrame = EditorApplication.FrameCount;
 
-            if (rect.Contains(Mouse.MousePosition)) {
-                Identifier.SetHoveringID();
-                EditorCursor.Cursor = cursor;
+            Identifier.Push(name);
 
-                hover = true;
-            } else {
-                if (Identifier.ClearCurrentHoveringID()) {
-                    EditorCursor.Cursor = StandardCursorID.IDC_ARROW;
+            bool hasTitlebar = wnd.HasTitlebar;
+            bool hasBackground = wnd.RenderBackground;
+
+            if (hasTitlebar && ImGuiBehaviour.Button("__WND_TITLEBAR_DRAGMODE__", wnd.TitlebarRect, ButtonFlags.DetectHeld, out _)) {
+                wnd.Position += Mouse.Move;
+            }
+
+            if ((flags & StandardWindowFlags.DisableResize) != StandardWindowFlags.DisableResize) {
+                if (ImGuiBehaviour.Button("__RESIZE1__", new Rect(wnd.Position + new Vector2(0, wnd.Size.Y - StandardGuiWindow.ResizeHandleSize), StandardGuiWindow.ResizeHandleSize), ButtonFlags.DetectHeld, out _)) {
+                    var move = Mouse.Move;
+
+                    wnd.Position += new Vector2(move.X, 0);
+                    wnd.Size += new Vector2(-move.X, move.Y);
+                }
+
+                if (ImGuiBehaviour.Button("__RESIZE2__", new Rect(wnd.Position + wnd.Size - new Vector2(StandardGuiWindow.ResizeHandleSize), StandardGuiWindow.ResizeHandleSize), ButtonFlags.DetectHeld, out _)) {
+                    wnd.Size += Mouse.Move;
                 }
             }
 
-            Identifier.PopIdentifier();
-            return hover;
-        }
-        public static bool DraggingArea(string id, Rect rect, out Vector2 drag) {
-            bool isDragging = false;
-            drag = default;
+            bool hasScrollbar = (flags & StandardWindowFlags.DisableScrollbar) != StandardWindowFlags.DisableScrollbar;
+            
+            var rdisplay = wnd.DisplayRect;
+            if (hasScrollbar || hasTitlebar || hasBackground) {
+                wnd.BeginDrawComposite();
 
-            Identifier.PushIdentifier(id);
-            {
-                if (Identifier.IsIDActived()) {
-                    if (Mouse.LeftReleased) {
-                        Identifier.ClearActiveID();
+                if (hasTitlebar) {
+                    ImGuiRender.AddCompositeRect(new Rect(wnd.Position, new Vector2(wnd.Size.X, StandardGuiWindow.TitlebarHeight)), Coloring.Read(ColoringID.WindowTitle));
+                    if (hasBackground) ImGuiRender.AddCompositeRect(new(wnd.Position + new Vector2(0, StandardGuiWindow.TitlebarHeight), wnd.Size - new Vector2(0, StandardGuiWindow.TitlebarHeight)), Coloring.Read(ColoringID.WindowBackground));
+                } else {
+                    if (hasBackground) ImGuiRender.AddCompositeRect(new(wnd.Position, wnd.Size), Coloring.Read(ColoringID.WindowBackground));
+                }
+
+                if (hasScrollbar) {
+                    var scontent = wnd.Context.ContentSize;
+                    var rclient = wnd.ClientRect;
+
+                    wnd.EnableScrollY = scontent.Y > rdisplay.Height;
+                    if (wnd.EnableScrollY) {
+                        var scrollbarArea = new Rect(rclient.Max.X - StandardGuiWindow.HorizontalScrollbarWidth, rclient.Position.Y, StandardGuiWindow.HorizontalScrollbarWidth, rclient.Size.Y - StandardGuiWindow.ResizeHandleSize);
+
+                        float scrollY = wnd.Scrolling.Y;
+                        if (ImGuiBehaviour.VerticalScrollbar("__SCROLLBAR_Y__", scrollbarArea, rdisplay.Height, scontent.Y, ref scrollY, out var handleRect)) {
+                            wnd.Scrolling = new(wnd.Scrolling.X, scrollY);
+                        }
+
+                        ImGuiRender.AddCompositeRect(scrollbarArea, Color32.Green);
+                        ImGuiRender.AddCompositeRect(handleRect, Color32.Blue);
                     } else {
-                        drag = Mouse.MouseMoveDelta;
-                    }
-
-                    isDragging = true;
-                } else {
-                    if (Mouse.LeftPressed) {
-                        if (rect.Contains(Mouse.MousePosition)) {
-                            Identifier.SetActiveID();
-                        }
+                        wnd.Scrolling = new(wnd.Scrolling.X, 0);
                     }
                 }
-            }
-            Identifier.PopIdentifier();
 
-            return isDragging;
+                wnd.EndDrawComposite();
+
+                if (hasBackground) ImGuiRender.DrawFrame(new Rect(wnd.Position, wnd.Size), Coloring.Read(ColoringID.WindowBorder));
+            }
+
+            rdisplay = wnd.DisplayRect;
+            ImGuiLowLevel.BeginCoordinateOffset(rdisplay.Position - wnd.Scrolling);
+            ImGuiLowLevel.BeginScissorRect(rdisplay);
+
+            wnd.Context.Reset();
         }
-        public static bool ResponsiveDraggingArea(string id, Rect rect, StandardCursorID cursor, out Vector2 drag) {
-            bool isDragging = false;
-            drag = default;
+#pragma warning restore CS8774
 
-            Identifier.PushIdentifier(id);
+        public static void EndStandardWindow() {
+            if (CurrentWindow == null || CurrentWindow.Type != WindowType.Standard) return;
 
-            if (Identifier.IsIDActived()) {
-                EditorCursor.Cursor = cursor;
+            // Padding to the bottom content
+            CurrentWindow.Context.GetRect(4);
 
-                drag = Mouse.MouseMoveDelta;
-                isDragging = true;
-
-                if (Mouse.LeftReleased) {
-                    Identifier.ClearActiveID();
-                    EditorCursor.Cursor = StandardCursorID.IDC_ARROW;
-                }
-            } else {
-                if (rect.Contains(Mouse.MousePosition)) {
-                    if (Mouse.LeftPressed) {
-                        Identifier.SetActiveID();
-                    }
-
-                    Identifier.SetHoveringID();
-                    EditorCursor.Cursor = cursor;
-                } else {
-                    if (Identifier.ClearCurrentHoveringID()) {
-                        EditorCursor.Cursor = StandardCursorID.IDC_ARROW;
-                    }
-                }
-            }
-
-            Identifier.PopIdentifier();
-
-            return isDragging;
-        }
-        public static bool DoResizingBorder(RectArea containerRect, float hresize, float vresize, ResizingBorderDirections direction, out Vector2 moveDelta, out ResizingBorderDirections dragDir) {
-            moveDelta = default;
-            dragDir = default;
-
-            var cmin = containerRect.Min;
-            var cmax = containerRect.Max;
-
-            // Horizontals & Verticals
-            if ((direction & ResizingBorderDirections.Left) == ResizingBorderDirections.Left) {
-                if (ResponsiveDraggingArea("__RESIZING_BORDER_LEFT__", new RectArea(cmin - new Vector2(hresize, 0), new Vector2(cmin.X, cmax.Y)), StandardCursorID.IDC_SIZEWE, out var drag)) {
-                    moveDelta = new Vector2(drag.X, 0);
-                    dragDir = ResizingBorderDirections.Left;
-
-                    Console.WriteLine("LEFT");
-                    return true;
-                }
-            }
-
-            if ((direction & ResizingBorderDirections.Right) == ResizingBorderDirections.Right) {
-                if (ResponsiveDraggingArea("__RESIZING_BORDER_RIGHT__", new RectArea(new Vector2(cmax.X, cmin.Y), cmax + new Vector2(hresize, 0)), StandardCursorID.IDC_SIZEWE, out var drag)) {
-                    moveDelta = new Vector2(drag.X, 0);
-                    dragDir = ResizingBorderDirections.Right;
-                    return true;
-                }
-            }
-
-            if ((direction & ResizingBorderDirections.Bottom) == ResizingBorderDirections.Bottom) {
-                if (ResponsiveDraggingArea("__RESIZING_BORDER_BOTTOM__", new RectArea(new Vector2(cmin.X, cmax.Y), new Vector2(cmax.X, cmax.Y + vresize)), StandardCursorID.IDC_SIZENS, out var drag)) {
-                    moveDelta = new Vector2(0, drag.Y);
-                    dragDir = ResizingBorderDirections.Bottom;
-                    return true;
-                }
-            }
-
-            if ((direction & ResizingBorderDirections.Top) == ResizingBorderDirections.Top) {
-                if (ResponsiveDraggingArea("__RESIZING_BORDER_TOP__", new RectArea(new Vector2(cmin.X, cmin.Y - vresize), new Vector2(cmax.X, cmin.Y)), StandardCursorID.IDC_SIZENS, out var drag)) {
-                    moveDelta = new Vector2(0, drag.Y);
-                    dragDir = ResizingBorderDirections.Top;
-                    return true;
-                }
-            }
-
-            // Diagonals
-            if ((direction & ResizingBorderDirections.TopLeft) == ResizingBorderDirections.TopLeft) {
-                if (ResponsiveDraggingArea("__RESIZING_BORDER_TOPLEFT__", new RectArea(cmin - new Vector2(hresize, vresize), cmin), StandardCursorID.IDC_SIZENWSE, out var drag)) {
-                    moveDelta = drag;
-                    dragDir = ResizingBorderDirections.TopLeft;
-                    return true;
-                }
-            }
-
-            if ((direction & ResizingBorderDirections.BottomRight) == ResizingBorderDirections.BottomRight) {
-                if (ResponsiveDraggingArea("__RESIZING_BORDER_BOTTOMRIGHT__", new RectArea(cmax, cmax + new Vector2(hresize, vresize)), StandardCursorID.IDC_SIZENWSE, out var drag)) {
-                    moveDelta = drag;
-                    dragDir = ResizingBorderDirections.BottomRight;
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        public static void BeginWindow(string name, ref Vector2 windowPosition, ref Vector2 clientSize, float titlebarHeight) {
-            Identifier.PushIdentifier(name);
-
-            if (DraggingArea("__WND_TITLEBAR_DRAGMOVE__", new RectArea(windowPosition + new Vector2(2, 0), windowPosition + new Vector2(clientSize.X - 2, titlebarHeight)), out var tdelta)) {
-                windowPosition += tdelta;
-            }
-
-            ImGuiLowLevel.BeginDrawComposite();
-
-            var titlebarRect = new RectArea(windowPosition, windowPosition + new Vector2(clientSize.X, titlebarHeight));
-            if (DoResizingBorder(new RectArea(windowPosition, windowPosition + clientSize + Vector2.UnitY * titlebarHeight), 5, 5, ResizingBorderDirections.All, out var delta, out var dir)) {
-                switch (dir) {
-                    case ResizingBorderDirections.Left:
-                        windowPosition.X += delta.X;
-                        clientSize.X -= delta.X;
-                        break;
-
-                    case ResizingBorderDirections.Right:
-                        clientSize.X += delta.X;
-                        break;
-
-                    case ResizingBorderDirections.Top:
-                        windowPosition.Y += delta.Y;
-                        clientSize.Y -= delta.Y;
-                        break;
-
-                    case ResizingBorderDirections.Bottom:
-                        clientSize.Y += delta.Y;
-                        break;
-
-                    case ResizingBorderDirections.TopLeft:
-                        windowPosition += delta;
-                        clientSize -= delta;
-                        break;
-
-                    case ResizingBorderDirections.BottomRight:
-                        clientSize += delta;
-                        break;
-                }
-            }
-
-            AddCompositeRect(titlebarRect, ImGuiColoring.GetColor(ImGuiColoringID.WindowTitle));
-            AddCompositeRect(new RectArea(new Vector2(windowPosition.X, windowPosition.Y + titlebarHeight), new Vector2(windowPosition.X, windowPosition.Y + titlebarHeight) + clientSize), ImGuiColoring.GetColor(ImGuiColoringID.WindowBackground));
-
-            ImGuiLowLevel.BeginScissorRect(new Rect(windowPosition + new Vector2(clientSize.X / 2, titlebarHeight + clientSize.Y / 2), clientSize));
-
-            ImGuiLowLevel.EndDrawComposite();
-        }
-        public static void EndWindow() {
             ImGuiLowLevel.EndScissorRect();
+            ImGuiLowLevel.EndCoordinateOffset();
 
-            Identifier.PopIdentifier();
+            Identifier.Pop();
+
+            _windowStack.Pop();
         }
 
-        public static void DrawText(ReadOnlySpan<char> str, Vector2 position) {
-            var desc = EditorResources.FontBitmap.Description;
+        /// <summary>
+        /// Begin tooltip window when the mouse is hovering over the area. Remember to call <seealso cref="EndTooltipWindow"/> if the method returns true.
+        /// </summary>
+        /// <param name="hoveringArea">Hovering area relative to the last window</param>
+        /// <returns>Whether the tooltip is active</returns>
+        //public static bool BeginTooltipWindow(Rect hoveringArea) {
+        //    if (CurrentWindow == null || CurrentWindow.Type == WindowType.Tooltip) {
+        //        Logger.Warn("Cannot begin Tooltip window as the current window is invalid (Null or was a Tooltip window)");
+        //        return false;
+        //    }
 
-            ImGuiLowLevel.BeginDrawComposite();
+        //    if (hoveringArea.Collide(ImGuiInput.MousePosition)) {
+        //        //Styling.Push(StylingID.WindowMinimumSize, new Vector2(5, 16));
 
-            float stepX = 1f / desc.Width;
-            float stepY = 1f / desc.Height;
+        //        _tooltipWnd.Position = Mouse.Position + new Vector2(12, 16);
 
-            float scale = stbtt_ScaleForPixelHeight(EditorResources.FontInfo, EditorResources.FontPixelHeight);
+        //        AssignNextWindowSize(_tooltipWnd);
 
-            int ascent, descent, lineGap;
-            stbtt_GetFontVMetrics(EditorResources.FontInfo, &ascent, &descent, &lineGap);
+        //        _windowStack.Push(_tooltipWnd);
 
-            float oldX = position.X;
+        //        Rect clientRect = new(_tooltipWnd.Position, _tooltipWnd.Size);
 
-            fixed (stbtt_packedchar* pPacked = &EditorResources.PackedChar[0]) {
-                for (int i = 0; i < str.Length; i++) {
-                    char c = str[i];
+        //        ImGuiLowLevel.BeginFullscreenScissorRect();
+        //        ImGuiLowLevel.BeginCoordinateOffset(-ImGuiLowLevel.CoordinateOffset);
 
-                    stbtt_packedchar* ptr = pPacked + c;
+        //        ImGuiRender.DrawRect(clientRect, ImGuiColoring.Read(ColoringID.WindowBackground));
+        //        ImGuiRender.DrawFrame(clientRect, ImGuiColoring.Read(ColoringID.WindowBorder));
 
-                    float charHeight = ptr->yoff2 - ptr->yoff;
+        //        ImGuiLowLevel.BeginCoordinateOffset(clientRect.Position);
+        //        ImGuiLowLevel.BeginScissorRect(clientRect);
 
-                    float minX = MathF.Floor(position.X + ptr->xoff + 0.5f);
-                    float minY = MathF.Floor(position.Y + ptr->yoff + 0.5f + (ascent - descent) * scale);
+        //        _tooltipWnd.Context.Reset();
 
-                    position.X += ptr->xadvance;
+        //        return true;
+        //    }
 
-                    {
-                        if (c == ' ' || c == '\t' || c == '\u3000' || c == '\r') continue;
-                        if (c == '\n') {
-                            position.X = oldX;
-                            position.Y += (ascent - descent + lineGap) * scale;
-                            continue;
-                        }
+        //    return false;
+        //}
+        //public static void EndTooltipWindow() {
+        //    if (CurrentWindow == null || CurrentWindow.Type != WindowType.Tooltip) return;
+
+        //    //Styling.Pop(StylingID.WindowMinimumSize);
+
+        //    ImGuiLowLevel.EndScissorRect();
+        //    ImGuiLowLevel.EndCoordinateOffset();
+        //    ImGuiLowLevel.EndCoordinateOffset();
+        //    ImGuiLowLevel.EndScissorRect();
+
+        //    _windowStack.Pop();
+        //}
+
+        /// <summary>
+        /// Decode widget's identity string into 2 parts: Display name, and control ID.
+        /// </summary>
+        /// <param name="input">Input identity, in the form of <c>[Name]___[ID]</c> (Both name and id can be optional)</param>
+        /// <param name="name">Output display name of Widget</param>
+        /// <param name="id">Output control ID of Widget</param>
+        public static void DecodeWidgetIdentity(ReadOnlySpan<char> input, out ReadOnlySpan<char> name, out ReadOnlySpan<char> id) {
+            var sep = input.IndexOf("___");
+
+            switch (sep) {
+                case -1:
+                    name = input;
+                    id = input;
+                    break;
+
+                case 0:
+                    name = ReadOnlySpan<char>.Empty;
+
+                    if (input.Length == 3) {
+                        id = ReadOnlySpan<char>.Empty;
+                    } else {
+                        id = input[(sep + 3)..];
                     }
+                    break;
 
-                    float maxX = minX + ptr->xoff2 - ptr->xoff;
-                    float maxY = minY + charHeight;
-
-                    Vector2 minUV = new(ptr->x0 * stepX, ptr->y0 * stepY);
-                    Vector2 maxUV = new(ptr->x1 * stepX, ptr->y1 * stepY);
-
-                    var vcount = ImGuiLowLevel.VertexCount;
-                    ImGuiLowLevel.AddVertex(new Vertex(new(minX, minY, 0), Color32.White, minUV));
-                    ImGuiLowLevel.AddVertex(new Vertex(new(maxX, minY, 0), Color32.White, new(maxUV.X, minUV.Y)));
-                    ImGuiLowLevel.AddVertex(new Vertex(new(maxX, maxY, 0), Color32.White, maxUV));
-                    ImGuiLowLevel.AddVertex(new Vertex(new(minX, maxY, 0), Color32.White, new(minUV.X, maxUV.Y)));
-
-                    ImGuiLowLevel.AddIndex(vcount);
-                    ImGuiLowLevel.AddIndex(vcount + 1);
-                    ImGuiLowLevel.AddIndex(vcount + 2);
-                    ImGuiLowLevel.AddIndex(vcount + 2);
-                    ImGuiLowLevel.AddIndex(vcount + 3);
-                    ImGuiLowLevel.AddIndex(vcount);
-                }
+                default:
+                    name = input[0..sep];
+                    
+                    if (sep == input.Length - 3) {
+                        id = ReadOnlySpan<char>.Empty;
+                    } else {
+                        id = input[(sep + 3)..];
+                    }
+                    break;
             }
-
-            ImGuiLowLevel.EndDrawComposite(EditorResources.FontShaderResource, null);
         }
     }
 }

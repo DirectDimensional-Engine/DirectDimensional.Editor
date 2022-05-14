@@ -25,7 +25,6 @@ namespace DirectDimensional.Editor.GUI {
 
         public static DDTexture2D WhiteTexture { get; private set; } = null!;
 
-        public static List<DrawCall> DrawCalls { get; private set; }
         public static List<Vertex> Vertices { get; private set; }
         public static List<ushort> Indices { get; private set; }
 
@@ -34,9 +33,8 @@ namespace DirectDimensional.Editor.GUI {
         public static DepthStencilState DepthState { get; private set; } = null!;
 
         static ImGuiContext() {
-            DrawCalls = new(64);
-            Vertices = new(128);
-            Indices = new(256);
+            Vertices = new(5000);
+            Indices = new(5000);
 
             VertexBuffers = new(1);
         }
@@ -44,11 +42,11 @@ namespace DirectDimensional.Editor.GUI {
         private static Matrix4x4 ProjectionMatrix() {
             Matrix4x4 projection = new();
 
-            var rect = Window.ClientSize;
+            var size = EditorWindow.ClientSize;
 
-            projection.M11 = 2f / rect.X;
+            projection.M11 = 2f / size.X;
             projection.M41 = -1;
-            projection.M22 = -2f / rect.Y;
+            projection.M22 = -2f / size.Y;
             projection.M42 = 1;
             projection.M33 = 0.5f;
             projection.M44 = 1;
@@ -70,7 +68,7 @@ namespace DirectDimensional.Editor.GUI {
 
             Material = Material.Compile(@"
             struct VSInput {
-                float3 position : Position;
+                float2 position : Position;
                 float4 color    : Color;
                 float2 uv       : TexCoord;
             };
@@ -88,7 +86,7 @@ namespace DirectDimensional.Editor.GUI {
             PSInput main(VSInput input) {
                 PSInput output;
 
-                output.position = mul(_Projection, float4(input.position.xy, 1, 1));
+                output.position = mul(_Projection, float4(input.position, 1, 1));
                 output.color = input.color;
                 output.uv = input.uv;
 
@@ -106,15 +104,14 @@ namespace DirectDimensional.Editor.GUI {
             SamplerState _Sampler : register(s0);
 
             float4 main(PSInput input) : SV_Target {
-                float4 sample = _MainTex.Sample(_Sampler, input.uv);
-                return input.color * sample;
+                return input.color * _MainTex.Sample(_Sampler, input.uv);
             }
             ", "ImGUIPS", out var bytecode, D3DCOMPILE.None)!;
 
             var elements = new D3D11_INPUT_ELEMENT_DESC[] {
-                new D3D11_INPUT_ELEMENT_DESC("Position", 0, DXGI_FORMAT.R32G32B32_FLOAT, 0, 0, D3D11_INPUT_CLASSIFICATION.PerVertexData, 0),
-                new D3D11_INPUT_ELEMENT_DESC("Color", 0, DXGI_FORMAT.R8G8B8A8_UNORM, 0, 12, D3D11_INPUT_CLASSIFICATION.PerVertexData, 0),
-                new D3D11_INPUT_ELEMENT_DESC("TexCoord", 0, DXGI_FORMAT.R32G32_FLOAT, 0, 16, D3D11_INPUT_CLASSIFICATION.PerVertexData, 0),
+                new D3D11_INPUT_ELEMENT_DESC("Position", 0, DXGI_FORMAT.R32G32_FLOAT, 0, 0, D3D11_INPUT_CLASSIFICATION.PerVertexData, 0),
+                new D3D11_INPUT_ELEMENT_DESC("Color", 0, DXGI_FORMAT.R8G8B8A8_UNORM, 0, 8, D3D11_INPUT_CLASSIFICATION.PerVertexData, 0),
+                new D3D11_INPUT_ELEMENT_DESC("TexCoord", 0, DXGI_FORMAT.R32G32_FLOAT, 0, 12, D3D11_INPUT_CLASSIFICATION.PerVertexData, 0),
             };
 
             Direct3DContext.Device.CreateInputLayout(elements, bytecode!, out var _il).ThrowExceptionIfError();
@@ -202,7 +199,6 @@ namespace DirectDimensional.Editor.GUI {
 
             Vertices.Clear();
             Indices.Clear();
-            DrawCalls.Clear();
 
             RasterizerState.CheckAndRelease();
 
