@@ -1,90 +1,84 @@
 ﻿using System.Numerics;
 using DirectDimensional.Core;
+using System.Runtime.CompilerServices;
 
 namespace DirectDimensional.Editor.GUI {
     public sealed class WindowDrawingContext {
-        private readonly GuiWindow wnd;
-
+        private readonly GuiWindow _wnd;
         private Vector2 _position, _contentSize;
-        public Vector2 CurrentPosition => _position;
+        public Vector2 CurrentPosition {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _position;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => _position = value;
+        }
         public Vector2 ContentSize => _contentSize;
 
-        private bool _horizontalLayout;
-        public bool InHorizontalMode => _horizontalLayout;
+        public Rect CurrentRect { get; private set; }
 
-        private float _horizontalBaseLine = 0;
+        // Horizontal layout handling
+        private bool _inHorizontalMode = false;
+        private float _highestItemHorizontal = 0;
 
-        public float RightWidthTillMax => _contentSize.X - _position.X;
+        private Vector2 _horizontalJump;
 
-        public WindowDrawingContext(GuiWindow window) {
-            wnd = window;
+        public WindowDrawingContext(GuiWindow wnd) {
+            _wnd = wnd;
         }
 
-        public float HorizontalBaseLine {
-            get => _horizontalBaseLine;
-            set => _horizontalBaseLine = MathF.Max(0, value);
-        }
-
-        public void ForcePosition(Vector2 pos) {
-            _position = Vector2.Max(Vector2.Zero, pos);
-        }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Rect GetRect(float sx, float sy) {
             return GetRect(new Vector2(sx, sy));
         }
-
         public Rect GetRect(Vector2 size) {
-            var position = _position;
+            size = Vector2.Max(Vector2.Zero, size);
 
-            if (_horizontalLayout) {
-                _contentSize = Vector2.Max(_contentSize, _position + size);
-                _position.X += size.X + 3;
+            var elemSpace = ElementSpacing;
+            var oldPos = _position;
+
+            _contentSize = Vector2.Max(_position + size, _contentSize);
+
+            if (_inHorizontalMode) {
+                _position.X += size.X + elemSpace;
+                _highestItemHorizontal = MathF.Max(_highestItemHorizontal, size.Y);
             } else {
-                _contentSize = Vector2.Max(_contentSize, new(_horizontalBaseLine + size.X, _position.Y + size.Y));
-                _position = new(_horizontalBaseLine, _position.Y + size.Y + 3);
+                _horizontalJump = _position + new Vector2(size.X + elemSpace, 0);
+                _position = new(0, _position.Y + size.Y + elemSpace);
             }
 
-            return new(position, size);
+            CurrentRect = new(oldPos, size);
+            return CurrentRect;
         }
 
-        /// <summary>
-        /// Linebreak, advance and return the rect advanced.
-        /// </summary>
-        /// <param name="height"></param>
-        /// <returns></returns>
-        public Rect GetRect(float height) {
-            var position = _position;
+        public void BeginHorizontalLayout() {
+            if (_inHorizontalMode) return;
 
-            _contentSize = new(MathF.Max(_contentSize.X, wnd.DisplayRect.Width), MathF.Max(_contentSize.Y, _position.Y + height));
-            _position = new(_horizontalBaseLine, _position.Y + height + 3);
-
-            return new(position.X, position.Y, _contentSize.X, height);
+            _position = _horizontalJump;
+            _inHorizontalMode = true;
         }
 
-        public void Space(float size) {
-            if (size <= 0) return;
+        public void EndHorizontalLayout() {
+            if (!_inHorizontalMode) return;
+            _inHorizontalMode = false;
 
-            if (_horizontalLayout) {
-                _contentSize.X = MathF.Max(_contentSize.X, _position.X + size);
-                _position.X += size;
-            } else {
-                _contentSize.Y = MathF.Max(_contentSize.Y, _position.Y + size);
-                _position.Y += size;
-            }
-        }
-
-        public void ToVerticalLayoutMode() {
-            _horizontalLayout = false;
-        }
-
-        public void ToHorizontalLayoutMode() {
-            _horizontalLayout = true;
+            _position = new(0, _position.Y + _highestItemHorizontal + ElementSpacing);
+            _highestItemHorizontal = 0;
         }
 
         internal void Reset() {
-            _horizontalLayout = false;
             _position = default;
-            _contentSize = new(wnd.DisplayRect.Width, 0);
+            _contentSize = default;
+
+            CurrentRect = default;
+
+            _inHorizontalMode = false;
+            _highestItemHorizontal = 0;
+            _horizontalJump = default;
+        }
+
+        private static int ElementSpacing {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Styling.Read<int>(StylingID.LayoutElementSpacing);
         }
     }
 }

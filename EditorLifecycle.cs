@@ -1,29 +1,28 @@
-﻿using System.Numerics;
-using DirectDimensional.Editor.GUI;
+﻿using DirectDimensional.Editor.GUI;
 using DirectDimensional.Core;
-using System.Runtime.InteropServices;
-using System.Text;
-
-using static StbTrueTypeSharp.StbTrueType;
+using DirectDimensional.Core.Miscs;
+using DirectDimensional.Core.Utilities;
+using System.Numerics;
+using System.Diagnostics;
 
 namespace DirectDimensional.Editor {
     internal unsafe static class EditorLifecycle {
         public static void Initialize() {
-            ImGuiEngine.Initialize();
+            Engine.Initialize();
         }
 
         public static void Cycle() {
-            ImGuiEngine.NewFrame();
-            ImGuiEngine.Update();
+            Engine.NewFrame();
+            Engine.Update();
 
-            // Area to put ImGui codes
+            ImGui.EndStandardWindow();
 
-            ImGuiEngine.Render();
-            ImGuiEngine.EndFrame();
+            Engine.Render();
+            Engine.EndFrame();
         }
 
         public static void Shutdown() {
-            ImGuiEngine.Shutdown();
+            Engine.Shutdown();
         }
     }
 }

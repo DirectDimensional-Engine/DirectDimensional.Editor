@@ -16,10 +16,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="StbTrueTypeSharp" Version="1.26.9" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Reference Include="DirectDimensional.Bindings">
       <HintPath>..\DirectDimensional.Bindings\bin\Debug\net6.0\DirectDimensional.Bindings.dll</HintPath>
     </Reference>
@@ -28,6 +24,9 @@
     </Reference>
     <Reference Include="DirectDimensional.Runtime">
       <HintPath>..\DirectDimensional.Runtime\bin\Debug\net6.0\DirectDimensional.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="StbTrueTypeSharp">
+      <HintPath>..\DirectDimensional.Core\bin\Debug\net6.0\StbTrueTypeSharp.dll</HintPath>
     </Reference>
   </ItemGroup>
 

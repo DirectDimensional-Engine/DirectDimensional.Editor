@@ -12,6 +12,11 @@ namespace DirectDimensional.Editor.GUI {
         ButtonPressed,
 
         TextColor,
+
+        InputFieldNormal,
+
+        // Group Coloring
+        ToolbarButtonBackground,
     }
 
     public static class Coloring {
@@ -34,6 +39,10 @@ namespace DirectDimensional.Editor.GUI {
             _colors[ColoringID.ButtonPressed].Push(new Color32(0x2A, 0x2A, 0x2A));
 
             _colors[ColoringID.TextColor].Push(Color32.White);
+
+            _colors[ColoringID.InputFieldNormal].Push(new Color32(0x26, 0x26, 0x26));
+
+            _colors[ColoringID.ToolbarButtonBackground].Push(_colors[ColoringID.ButtonNormal].Peek());
         }
 
         public static Color32 Read(ColoringID id) {

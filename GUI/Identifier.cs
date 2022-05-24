@@ -1,7 +1,10 @@
 ﻿using DirectDimensional.Core;
+using System.Runtime.CompilerServices;
 
 namespace DirectDimensional.Editor.GUI {
     public static class Identifier {
+        private static int _hashcodeDefault;
+
         public static int HoveringID { get; private set; }
         public static int ActiveID { get; private set; }
 
@@ -12,9 +15,12 @@ namespace DirectDimensional.Editor.GUI {
         public static int Current => _current;
 
         private static readonly Stack<int> _identifierStack;
+        public static int StackCount => _identifierStack.Count;
 
         static Identifier() {
             _identifierStack = new(16);
+
+            _hashcodeDefault = new HashCode().ToHashCode();
         }
 
         public static int Calculate(int id) {
@@ -39,29 +45,22 @@ namespace DirectDimensional.Editor.GUI {
             return hashCombiner.ToHashCode();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Push(string id) {
-            _identifierStack.Push(id.GetHashCode());
-            RecalculateHashCache();
+            Push(id.GetHashCode());
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Push(ReadOnlySpan<char> id) {
-            _identifierStack.Push(id.ToString().GetHashCode());
-            RecalculateHashCache();
+            Push(id.ToString().GetHashCode());
         }
 
         public static void Push(int id) {
             _identifierStack.Push(id);
-
             RecalculateHashCache();
         }
 
         public static void Pop() {
-            if (_identifierStack.Count == 0) {
-                _current = 0;
-
-                return;
-            }
-
             _identifierStack.Pop();
             RecalculateHashCache();
         }
@@ -109,6 +108,11 @@ namespace DirectDimensional.Editor.GUI {
         }
 
         private static void RecalculateHashCache() {
+            if (_identifierStack.Count == 0) {
+                _current = _hashcodeDefault;
+                return;
+            }
+
             HashCode hashCombiner = new();
             foreach (var id in _identifierStack) {
                 hashCombiner.Add(id);
@@ -119,8 +123,26 @@ namespace DirectDimensional.Editor.GUI {
 
         internal static void ResetForNewFrame() {
             _identifierStack.Clear();
-            _current = 0;
+            _current = _hashcodeDefault;
             HoveringID = 0;
+        }
+
+        public readonly struct Laziness : IDisposable {
+            public void Dispose() {
+                Pop();
+            }
+        }
+        public static Laziness Lazy(int id) {
+            Push(id);
+            return default;
+        }
+        public static Laziness Lazy(string id) {
+            Push(id);
+            return default;
+        }
+        public static Laziness Lazy(ReadOnlySpan<char> id) {
+            Push(id);
+            return default;
         }
     }
 }

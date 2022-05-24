@@ -7,7 +7,7 @@ namespace DirectDimensional.Editor.GUI {
     /// <summary>
     /// Contains raw behaviour of ImGui widget. Will not consider control case of Overlapping, etc...
     /// </summary>
-    public static class ImGuiBehaviour {
+    public static class Behaviours {
         /// <summary>
         /// Simulating button pressing action
         /// </summary>
@@ -16,15 +16,14 @@ namespace DirectDimensional.Editor.GUI {
         /// <param name="flags">Configuration flags of button behaviour</param>
         /// <param name="hover">Whether the button is being hovered</param>
         /// <returns>Whether the button is being pressed</returns>
-        public static bool Button(string id, Rect rect, ButtonFlags flags, out bool hover) {
+        public static bool Button(ReadOnlySpan<char> id, Rect rect, ButtonFlags flags, out bool hover) {
             hover = false;
             if (ImGui.CurrentWindow == null) return false;
 
             bool pressed = false;
 
-            Identifier.Push(id);
-            {
-                hover = ImGui.CurrentWindowHovered && Identifier.HoveringID == 0 && rect.Collide(ImGuiInput.MousePosition);
+            using (Identifier.Lazy(id)) {
+                hover = ImGui.CurrentWindowHovered && Identifier.HoveringID == 0 && rect.Collide(Input.MousePosition) && Utilities.IntersectScissorRect(Mouse.Position);
 
                 if (hover) {
                     Identifier.SetHoveringID();
@@ -54,7 +53,6 @@ namespace DirectDimensional.Editor.GUI {
                     }
                 }
             }
-            Identifier.Pop();
 
             return pressed;
         }
@@ -67,15 +65,14 @@ namespace DirectDimensional.Editor.GUI {
         /// <param name="flags">Configuration flags of button behaviour. Reserved, use <c>default</c> keyword for now.</param>
         /// <param name="hover">Whether the button is being hovered</param>
         /// <returns>Whether the button is being pressed</returns>
-        public static bool CircularButton(string id, Circle circle, ButtonFlags flags, out bool hover) {
+        public static bool CircularButton(ReadOnlySpan<char> id, Circle circle, ButtonFlags flags, out bool hover) {
             hover = false;
             if (ImGui.CurrentWindow == null) return false;
 
             bool pressed = false;
 
-            Identifier.Push(id);
-            {
-                bool hovered = ImGui.CurrentWindowHovered && Identifier.HoveringID == 0 && circle.CollideSqr(ImGuiInput.MousePosition);
+            using (Identifier.Lazy(id)) {
+                bool hovered = ImGui.CurrentWindowHovered && Identifier.HoveringID == 0 && circle.CollideSqr(Input.MousePosition) && Utilities.IntersectScissorRect(Mouse.Position);
 
                 if (hovered) {
                     Identifier.SetHoveringID();
@@ -107,7 +104,6 @@ namespace DirectDimensional.Editor.GUI {
 
                 hover = hovered;
             }
-            Identifier.Pop();
 
             return pressed;
         }
@@ -121,16 +117,15 @@ namespace DirectDimensional.Editor.GUI {
         /// <param name="hover">Whether the dragging area is being hovered</param>
         /// <param name="drag">Drag delta of the mouse since last application cycle</param>
         /// <returns></returns>
-        public static bool DragArea(string id, Rect rect, DragAreaFlags flags, out bool hover, out Vector2 drag) {
+        public static bool DragArea(ReadOnlySpan<char> id, Rect rect, DragAreaFlags flags, out bool hover, out Vector2 drag) {
             hover = false;
             drag = default;
             if (ImGui.CurrentWindow == null) return false;
 
             bool isDragging = false;
 
-            Identifier.Push(id);
-            {
-                hover = ImGui.CurrentWindowHovered && Identifier.HoveringID == 0 && rect.Collide(ImGuiInput.MousePosition);
+            using (Identifier.Lazy(id)) {
+                hover = ImGui.CurrentWindowHovered && Identifier.HoveringID == 0 && rect.Collide(Input.MousePosition) && Utilities.IntersectScissorRect(Mouse.Position);
 
                 if (hover) {
                     Identifier.SetHoveringID();
@@ -158,31 +153,50 @@ namespace DirectDimensional.Editor.GUI {
                     drag = Mouse.Move;
                 }
             }
-            Identifier.Pop();
 
             return isDragging;
         }
 
-        public static bool VerticalScrollbar(string id, Rect scrollbarRect, float viewportHeight, float contentHeight, ref float scrollingY, out Rect handleRect) {
+        public static bool HorizontalScrollbar(ReadOnlySpan<char> id, Rect scrollbarRect, float viewportWidth, float contentWidth, ref float scrollingX, out Rect handleRect) {
             handleRect = default;
             if (ImGui.CurrentWindow == null) return false;
 
             bool scrolling = false;
 
-            var handleSizeNormalize = DDMath.Saturate(viewportHeight / contentHeight);
+            var handleSizeNormalize = DDMath.Saturate(viewportWidth / contentWidth);
+            var handleSizeWidth = scrollbarRect.Width * handleSizeNormalize;
+
+            if (Button(id, scrollbarRect, ButtonFlags.DetectHeld, out _)) {
+                scrollingX = DDMath.Saturate((Mouse.Position.X - (scrollbarRect.Position.X + handleSizeWidth * 0.5f)) / (scrollbarRect.Width - handleSizeWidth)) * (1 - handleSizeNormalize) * contentWidth;
+                scrolling = true;
+            } else {
+                scrollingX = Math.Min(scrollingX, contentWidth - viewportWidth);
+            }
+
+            var max = scrollbarRect.Max;
+            handleRect = new Rect(DDMath.LerpUnclamped(scrollbarRect.Position.X, max.X, DDMath.Saturate(scrollingX / contentWidth)), scrollbarRect.Position.Y, handleSizeWidth, scrollbarRect.Height);
+
+            return scrolling;
+        }
+
+        public static bool VerticalScrollbar(ReadOnlySpan<char> id, Rect scrollbarRect, float viewportWidth, float contentWidth, ref float scrollingY, out Rect handleRect) {
+            handleRect = default;
+            if (ImGui.CurrentWindow == null) return false;
+
+            bool scrolling = false;
+
+            var handleSizeNormalize = DDMath.Saturate(viewportWidth / contentWidth);
             var handleSizeHeight = scrollbarRect.Height * handleSizeNormalize;
 
             if (Button(id, scrollbarRect, ButtonFlags.DetectHeld, out _)) {
-                // Stolen directly from Dear ImGui repo, thank you Ocornut, very cool
-                scrollingY = DDMath.Saturate((Mouse.Position.Y - (scrollbarRect.Position.Y + handleSizeHeight * 0.5f)) / (scrollbarRect.Height - handleSizeHeight)) * (1 - handleSizeNormalize) * contentHeight;
+                scrollingY = DDMath.Saturate((Mouse.Position.Y - (scrollbarRect.Position.Y + handleSizeHeight * 0.5f)) / (scrollbarRect.Height - handleSizeHeight)) * (1 - handleSizeNormalize) * contentWidth;
                 scrolling = true;
             } else {
-                scrollingY = Math.Min(scrollingY, contentHeight - viewportHeight);
+                scrollingY = Math.Min(scrollingY, contentWidth - viewportWidth);
             }
 
-            float handleYnorm = DDMath.Saturate(scrollingY / contentHeight);
             var max = scrollbarRect.Max;
-            handleRect = new Rect(scrollbarRect.Position.X, DDMath.LerpUnclamped(scrollbarRect.Position.Y, max.Y, handleYnorm), StandardGuiWindow.HorizontalScrollbarWidth, handleSizeHeight);
+            handleRect = new Rect(scrollbarRect.Position.X, DDMath.LerpUnclamped(scrollbarRect.Position.Y, max.Y, DDMath.Saturate(scrollingY / contentWidth)), scrollbarRect.Width, handleSizeHeight);
 
             return scrolling;
         }

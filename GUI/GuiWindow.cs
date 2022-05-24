@@ -8,8 +8,14 @@ using System.Runtime.CompilerServices;
 using DDTexture2D = DirectDimensional.Core.Texture2D;
 
 namespace DirectDimensional.Editor.GUI {
-    public abstract class GuiWindow {
+    public class GuiWindow {
+        public const float ScrollbarSize = 12;
+
+        public const float TitlebarHeight = 22;
+        public const float ResizeHandleSize = 12;
+
         public string Name { get; private set; }
+        public string DisplayName { get; set; }
 
         // If the value is different than CurrentFrame - 1, it means the window just been created (not create in OOP)
         public int LastRenderingFrame { get; internal set; } = -1;
@@ -17,18 +23,100 @@ namespace DirectDimensional.Editor.GUI {
         public bool IsFocused => ImGui.FocusingWindow == this;
 
         protected Rect _windowRect;
-        public abstract Vector2 Position { get; set; }
-        public abstract Vector2 Size { get; set; }
+        public Rect TitlebarRect => new(_windowRect.Position, new Vector2(_windowRect.Size.X, TitlebarHeight));
 
-        public WindowType Type { get; protected set; } = WindowType.Undefined;
+        public Vector2 Position {
+            get => _windowRect.Position;
+            set {
+                _windowRect.Position = Vector2.Clamp(value, Vector2.Zero, EditorWindow.ClientSize - Vector2.One * TitlebarHeight);
+            }
+        }
+
+        public Vector2 Size {
+            get => _windowRect.Size;
+            set {
+                _windowRect.Size = Vector2.Max(value, Vector2.Zero);
+            }
+        }
+
+        public Rect ClientRect {
+            get {
+                var r = new Rect(Position, Size);
+
+                int borderExtrude = HasBorder ? -1 : 0;
+
+                if (HasTitlebar) {
+                    r.Extrude(borderExtrude, borderExtrude, borderExtrude, -TitlebarHeight);
+                } else {
+                    r.Extrude(borderExtrude); // Border shrink
+                }
+
+                return r;
+            }
+
+            set {
+                int borderExtrude = HasBorder ? 1 : 0;
+
+                if (HasTitlebar) {
+                    value.Extrude(borderExtrude, borderExtrude, borderExtrude, TitlebarHeight);
+                } else {
+                    value.Extrude(borderExtrude);
+                }
+
+                Position = value.Position;
+                Size = value.Size;
+            }
+        }
+
+        public Rect DisplayRect {
+            get {
+                Rect r = ClientRect;
+                r.Extrude(-Styling.Read<Vector4>(StylingID.WindowContentPadding));
+
+                if (EnableScrollX) {
+                    r.Extrude(0, 0, -ScrollbarSize, 0);
+                }
+
+                if (EnableScrollY) {
+                    r.Extrude(0, -ScrollbarSize, 0, 0);
+                }
+
+                return r;
+            }
+
+            set {
+                value.Extrude(Styling.Read<Vector4>(StylingID.WindowContentPadding));
+                if (EnableScrollX) {
+                    value.Extrude(0, 0, ScrollbarSize, 0);
+                }
+
+                if (EnableScrollY) {
+                    value.Extrude(0, ScrollbarSize, 0, 0);
+                }
+
+                ClientRect = value;
+            }
+        }
+
+        public bool EnableScrollX { get; internal set; }
+        public bool EnableScrollY { get; internal set; }
+
+        internal uint Priority { get; set; } = 0;
+
+        public WindowFlags Flags { get; internal set; }
+        public bool IsFocusable => (Flags & WindowFlags.PreventFocus) != WindowFlags.PreventFocus;
+        public bool HasTitlebar => (Flags & WindowFlags.DisableTitlebar) != WindowFlags.DisableTitlebar;
+        public bool RenderBackground => (Flags & WindowFlags.DisableBackground) != WindowFlags.DisableBackground;
+
+        public bool HasHScrollbar => (Flags & WindowFlags.DisableHScrollbar) != WindowFlags.DisableHScrollbar;
+        public bool HasVScrollbar => (Flags & WindowFlags.DisableVScrollbar) != WindowFlags.DisableVScrollbar;
+
+        public bool HasBorder => (Flags & WindowFlags.DisableBorder) != WindowFlags.DisableBorder;
+
+        public event Action? OnEndWindow;
 
         public List<DrawCall> DrawCalls { get; private set; }
         private int _oldIndexCount = -1;
-
-        /// <summary>
-        /// Rectangle that display every widget drawn inside the window (not include built-in widgets like window's slider)
-        /// </summary>
-        public abstract Rect DisplayRect { get; }
 
         public WindowDrawingContext Context { get; private set; }
 
@@ -43,53 +131,57 @@ namespace DirectDimensional.Editor.GUI {
             DrawCalls = new(32);
 
             Context = new(this);
+            DisplayName = name;
         }
 
-        public abstract bool IsFocusable { get; }
+        private uint _drawCompositeCount = 0;
 
         /// <summary>
-        /// Begin draw complicated mesh in 1 single draw call
+        /// Increment underlying counter to do complicated mesh drawing
         /// </summary>
         public void BeginDrawComposite() {
-            if (_oldIndexCount >= 0) {
-                Logger.Warn(nameof(BeginDrawComposite) + " cannot be called because the window is in drawing composite state");
-                return;
+            if (_drawCompositeCount == 0) {
+                _oldIndexCount = GUI.Context.Indices.Count;
             }
-
-            _oldIndexCount = ImGuiContext.Indices.Count;
+            _drawCompositeCount++;
         }
 
         /// <summary>
-        /// Apply 1 draw call to system
+        /// Decrement underlying counter to do complicated mesh drawing. Append 1 draw call if counter hit 0
         /// </summary>
         public void EndDrawComposite() {
-            if (_oldIndexCount < 0) {
+            if (_drawCompositeCount == 0) {
                 Logger.Warn(nameof(EndDrawComposite) + " cannot be called because the window is not in drawing composite state");
                 return;
             }
 
-            var ic = ImGuiContext.Indices.Count - _oldIndexCount;
-            if (ic != 0) {
-                DrawCalls.Add(new DrawCall {
-                    IndexCount = (uint)ic,
-                    IndexLocation = (uint)_oldIndexCount,
+            if (--_drawCompositeCount == 0) {
+                var ic = GUI.Context.Indices.Count - _oldIndexCount;
+                if (ic != 0) {
+                    DrawCalls.Add(new DrawCall {
+                        IndexCount = (uint)ic,
+                        IndexLocation = (uint)_oldIndexCount,
 
-                    ScissorsRect = ImGuiLowLevel.CurrentScissorRect,
-                });
+                        ScissorsRect = LowLevel.CurrentScissorRect,
+                    });
+                }
+
+                _oldIndexCount = -1;
             }
-
-            _oldIndexCount = -1;
         }
 
-        public void EndDrawComposite(DDTexture2D? texture, D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY.TriangleList) {
+        /// <summary>
+        /// Decrement underlying counter to do complicated mesh drawing. Append 1 draw call if counter hit 0
+        /// </summary>
+        public void EndDrawComposite(DDTexture2D? texture) {
             if (texture == null) {
-                EndDrawComposite(null, null, topology);
+                EndDrawComposite(null, null);
             } else {
                 if (texture.IsRenderable) {
-                    EndDrawComposite(texture.DXSRV, texture.DXSampler, topology);
+                    EndDrawComposite(texture.DXSRV, texture.DXSampler);
                 } else {
                     Logger.Warn("EndDrawComposite: Texture is not renderable, fallback to default texture");
-                    EndDrawComposite(null, null, topology);
+                    EndDrawComposite(null, null);
                 }
             }
         }
@@ -97,30 +189,40 @@ namespace DirectDimensional.Editor.GUI {
         /// <summary>
         /// Apply 1 draw call with texture to system
         /// </summary>
-        public void EndDrawComposite(ShaderResourceView? pTexture, SamplerState? pSampler, D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY.TriangleList) {
-            if (_oldIndexCount < 0) {
-                Logger.Warn(nameof(EndDrawComposite) + " cannot be called because engine is not in drawing composite state. Operation cancelled.");
+        public void EndDrawComposite(ShaderResourceView? pTexture, SamplerState? pSampler) {
+            if (_drawCompositeCount == 0) {
+                Logger.Warn(nameof(EndDrawComposite) + " cannot be called because the window is not in drawing composite state");
                 return;
             }
 
-            DrawCalls.Add(new DrawCall {
-                IndexCount = (uint)(ImGuiContext.Indices.Count - _oldIndexCount),
-                IndexLocation = (uint)_oldIndexCount,
+            if (--_drawCompositeCount == 0) {
+                var ic = GUI.Context.Indices.Count - _oldIndexCount;
+                if (ic != 0) {
+                    DrawCalls.Add(new DrawCall {
+                        IndexCount = (uint)ic,
+                        IndexLocation = (uint)_oldIndexCount,
 
-                TexturePointer = pTexture.GetNativePtr(),
-                SamplerPointer = pSampler.GetNativePtr(),
-                ScissorsRect = ImGuiLowLevel.CurrentScissorRect,
+                        TexturePointer = pTexture.GetNativePtr(),
+                        SamplerPointer = pSampler.GetNativePtr(),
+                        ScissorsRect = LowLevel.CurrentScissorRect,
 
-                Topology = topology,
-            });
+                        Topology = D3D11_PRIMITIVE_TOPOLOGY.TriangleList,
+                    });
+                }
 
-            _oldIndexCount = -1;
+                _oldIndexCount = -1;
+            }
         }
 
         public bool IsDrawingComposite {
             [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-            get => _oldIndexCount >= 0;
+            get => _drawCompositeCount > 0;
         }
+
+        /// <summary>
+        /// Use for debugging
+        /// </summary>
+        public uint DrawCompositeCounter => _drawCompositeCount;
 
         public void Move(Vector2 delta) {
             Position += delta;
@@ -132,94 +234,23 @@ namespace DirectDimensional.Editor.GUI {
             DrawCalls.Clear();
             hasRegistered = false;
             _oldIndexCount = -1;
+
+            if (_drawCompositeCount != 0) {
+                Logger.Warn("Drawing composite leak detected for window '" + Name + "'");
+            }
+            _drawCompositeCount = 0;
         }
 
         public virtual void RegisterToGlobalDrawing() {
             if (hasRegistered) return;
 
-            ImGuiEngine.GlobalDrawCalls.Add(DrawCalls);
+            Engine.GlobalDrawCalls.Add(DrawCalls);
             hasRegistered = true;
         }
 
-        public bool EnableScrollY { get; internal set; }
-    }
-
-    public sealed class StandardGuiWindow : GuiWindow {
-        public const float HorizontalScrollbarWidth = 12;
-
-        public const float TitlebarHeight = 22;
-        public const float ResizeHandleSize = 12;
-
-        public static readonly Vector2 MinimumSize = new(60);
-
-        public StandardWindowFlags Flags { get; internal set; }
-        public override bool IsFocusable => (Flags & StandardWindowFlags.PreventFocus) != StandardWindowFlags.PreventFocus;
-        public bool HasTitlebar => (Flags & StandardWindowFlags.DisableTitlebar) != StandardWindowFlags.DisableTitlebar;
-        public bool RenderBackground => (Flags & StandardWindowFlags.DisableBackground) != StandardWindowFlags.DisableBackground;
-
-        public StandardGuiWindow(string name) : base(name) {
-            Type = WindowType.Standard;
-
-            _windowRect.Size = new Vector2(400, 300);
-        }
-
-        public Rect TitlebarRect => new(_windowRect.Position, new Vector2(_windowRect.Size.X, TitlebarHeight));
-
-        public override Vector2 Position {
-            get => _windowRect.Position;
-            set {
-                _windowRect.Position = Vector2.Clamp(value, Vector2.Zero, EditorWindow.ClientSize - Vector2.One * TitlebarHeight);
-            }
-        }
-
-        public override Vector2 Size {
-            get => _windowRect.Size;
-            set {
-                _windowRect.Size = Vector2.Max(value, MinimumSize);
-            }
-        }
-
-        public Rect ClientRect {
-            get {
-                var r = new Rect(Position, Size);
-                if ((Flags & StandardWindowFlags.DisableTitlebar) != StandardWindowFlags.DisableTitlebar) {
-                    r.Extrude(0, 0, 0, -TitlebarHeight);
-                }
-
-                return r;
-            }
-        }
-
-        public override Rect DisplayRect {
-            get {
-                Rect r = ClientRect;
-                r.Extrude(-Styling.Read<Vector4>(StylingID.WindowContentPadding));
-
-                if (EnableScrollY) {
-                    r.Extrude(0, -HorizontalScrollbarWidth, 0, 0);
-                }
-
-                return r;
-            }
-        }
-    }
-
-    public sealed class TooltipWindow : GuiWindow {
-        public TooltipWindow(string name) : base(name) {
-            Type = WindowType.Tooltip;
-        }
-
-        public override Rect DisplayRect => new(Position, Size);
-        public override bool IsFocusable => false;
-
-        public override Vector2 Position {
-            get => _windowRect.Position;
-            set => _windowRect.Position = value;
-        }
-
-        public override Vector2 Size {
-            get => _windowRect.Size;
-            set => _windowRect.Size = value;
+        internal void EndWindowCall() {
+            OnEndWindow?.Invoke();
+            OnEndWindow = null;
         }
     }
 }

@@ -19,8 +19,8 @@ namespace DirectDimensional.Editor {
         public static int FrameCount { get; private set; }
         public static double ElapsedTime => _stopwatch.Elapsed.TotalSeconds;
 
-        [DllImport("User32.dll", ExactSpelling = true)]
-        private static extern IntPtr SetFocus(IntPtr ptr);
+        private static float _deltaTime;
+        public static float DeltaTime => _deltaTime;
 
         public static unsafe int Main() {
             if (!Environment.Is64BitOperatingSystem) {
@@ -46,8 +46,6 @@ namespace DirectDimensional.Editor {
             EditorWindow.WindowHandle = WinAPI.CreateWindowExW(0, "Main Window", "DirectDimensional", overlappedWindow, 0, 0, 800, 600, IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
             WinAPI.ShowWindow(EditorWindow.WindowHandle, 3);
 
-            SetFocus(EditorWindow.WindowHandle);
-
             // Initialize raw mouse input
             {
                 RAWINPUTDEVICE rid = default;
@@ -69,28 +67,26 @@ namespace DirectDimensional.Editor {
             EditorLifecycle.Initialize();
 
             int exitCode;
-            if (EditorResources.LoadResources()) {
-                _stopwatch.Start();
+            _stopwatch.Start();
 
-                while (true) {
-                    if (ProcessMessage(out exitCode)) break;
+            while (true) {
+                float dts = (float)_stopwatch.Elapsed.TotalSeconds;
+                if (ProcessMessage(out exitCode)) break;
 
-                    var devctx = Direct3DContext.DevCtx;
+                var devctx = Direct3DContext.DevCtx;
 
-                    devctx.ClearRenderTargetView(Direct3DContext.RenderingOutput, new(0.06f, 0.06f, 0.06f, 1));
-                    devctx.OMSetRenderTargets(Direct3DContext.RenderingOutputAsArray, null);
+                devctx.ClearRenderTargetView(Direct3DContext.RenderingOutput, new(0.06f, 0.06f, 0.06f, 1));
+                devctx.OMSetRenderTargets(Direct3DContext.RenderingOutputAsArray, null);
 
-                    EditorLifecycle.Cycle();
+                EditorLifecycle.Cycle();
 
-                    Direct3DContext.SwapChain.Present(1u, DXGI_PRESENT.None);
+                Direct3DContext.SwapChain.Present(1u, DXGI_PRESENT.None);
 
-                    FrameCount++;
+                _deltaTime = (float)_stopwatch.Elapsed.TotalSeconds - dts;
+                FrameCount++;
 
-                    Direct3DContext.FlushD3D11DebugMessages(DebugWriter);
-                    Direct3DContext.ClearD3D11DebugMessages();
-                }
-            } else {
-                exitCode = -1;
+                Direct3DContext.FlushD3D11DebugMessages(DebugWriter);
+                Direct3DContext.ClearD3D11DebugMessages();
             }
 
             EditorLifecycle.Shutdown();

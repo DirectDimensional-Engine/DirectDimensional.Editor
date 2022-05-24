@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 using System.Numerics;
 
 namespace DirectDimensional.Editor.GUI {
-    internal static unsafe class ImGuiEngine {
+    internal static unsafe class Engine {
         public static readonly uint[] strides = new uint[1] { (uint)sizeof(Vertex) };
         public static readonly uint[] offsets = new uint[1] { 0 };
 
@@ -15,19 +15,21 @@ namespace DirectDimensional.Editor.GUI {
 
         internal static List<List<DrawCall>> GlobalDrawCalls { get; private set; }
 
-        static ImGuiEngine() {
+        public static event Action? EndFrameCallback;
+
+        static Engine() {
             GlobalDrawCalls = new(8);
         }
 
         public static void Initialize() {
-            ImGuiContext.Initialize();
+            Context.Initialize();
 
             pTexturePtr = Marshal.AllocHGlobal(IntPtr.Size);
             pSamplerPtr = Marshal.AllocHGlobal(IntPtr.Size);
         }
 
         public static void Shutdown() {
-            ImGuiContext.Shutdown();
+            Context.Shutdown();
 
             Marshal.FreeHGlobal(pTexturePtr);
             Marshal.FreeHGlobal(pSamplerPtr);
@@ -37,26 +39,26 @@ namespace DirectDimensional.Editor.GUI {
             GlobalDrawCalls.Clear();
 
             ImGui.NewFrame();
-            ImGuiContext.Vertices.Clear();
-            ImGuiContext.Indices.Clear();
+            Context.Vertices.Clear();
+            Context.Indices.Clear();
             
-            for (int i = 0; i < ImGui.StandardWindows.Count; i++) {
-                ImGui.StandardWindows[i].ResetForNewFrame();
+            for (int i = 0; i < ImGui.Windows.Count; i++) {
+                ImGui.Windows[i].ResetForNewFrame();
             }
-            ImGui.TooltipWindow.ResetForNewFrame();
 
-            ImGuiLowLevel.NewFrameReset();
+            LowLevel.NewFrameReset();
 
             Identifier.ResetForNewFrame();
             Styling.ClearAll();
             Coloring.ClearAll();
+            FontStack.ClearStack();
         }
 
         public static void Update() {
             ImGui.UpdateHoveringWindow();
-            ImGuiInput.Update();
+            Input.Update();
 
-            if (ImGuiBehaviour.WrapCursorInWnd) {
+            if (Behaviours.WrapCursorInWnd) {
                 if (WinAPI.GetCursorPos(out POINT point) && WinAPI.GetClientRect(EditorWindow.WindowHandle, out RECT rect)) {
                     if (WinAPI.MapWindowPoints(EditorWindow.WindowHandle, IntPtr.Zero, (POINT*)&rect, 2) != 0) {
                         if (point.X <= rect.Left) {
@@ -71,44 +73,42 @@ namespace DirectDimensional.Editor.GUI {
                             WinAPI.SetCursorPos(point.X, rect.Bottom - 1);
                         }
 
-                        ImGuiBehaviour.DeactivateWrapCursorInWindow();
+                        Behaviours.DeactivateWrapCursorInWindow();
                     }
                 }
             }
         }
 
         private static int SortWindowType(GuiWindow a, GuiWindow b) {
-            bool c1 = a.Type < b.Type;
-            bool c2 = b.Type < a.Type;
+            bool c1 = a.Priority < b.Priority;
+            bool c2 = b.Priority < a.Priority;
 
             return *(int*)&c2 - *(int*)&c1;
         }
 
         public static void Render() {
-            ImGui.StandardWindows.Sort(SortWindowType);
+            ImGui.Windows.Sort(SortWindowType);
 
-            for (int i = 0; i < ImGui.StandardWindows.Count; i++) {
-                GlobalDrawCalls.Add(ImGui.StandardWindows[i].DrawCalls);
+            for (int i = 0; i < ImGui.Windows.Count; i++) {
+                GlobalDrawCalls.Add(ImGui.Windows[i].DrawCalls);
             }
 
-            GlobalDrawCalls.Add(ImGui.TooltipWindow.DrawCalls);
-
-            ImGuiContext.WriteMeshDataToGPU();
+            Context.WriteMeshDataToGPU();
 
             DXStateBackup.Backup();
 
             var ctx = Direct3DContext.DevCtx;
 
-            ctx.IASetVertexBuffers(0u, ImGuiContext.VertexBuffers, strides, offsets);
-            ctx.IASetIndexBuffer(ImGuiContext.IndexBuffer, DXGI_FORMAT.R16_UINT, 0);
-            ctx.IASetInputLayout(ImGuiContext.InputLayout);
-            ctx.VSSetShader(ImGuiContext.Material.VertexShader!.Shader);
-            ctx.PSSetShader(ImGuiContext.Material.PixelShader!.Shader);
+            ctx.IASetVertexBuffers(0u, Context.VertexBuffers, strides, offsets);
+            ctx.IASetIndexBuffer(Context.IndexBuffer, DXGI_FORMAT.R16_UINT, 0);
+            ctx.IASetInputLayout(Context.InputLayout);
+            ctx.VSSetShader(Context.Material.VertexShader!.Shader);
+            ctx.PSSetShader(Context.Material.PixelShader!.Shader);
 
-            ctx.RSSetState(ImGuiContext.RasterizerState);
+            ctx.RSSetState(Context.RasterizerState);
 
-            ctx.OMSetBlendState(ImGuiContext.BlendState, null, 0xFFFFFFFF);
-            ctx.VSSetConstantBuffers(0, ImGuiContext.ProjectionBuffer);
+            ctx.OMSetBlendState(Context.BlendState, null, 0xFFFFFFFF);
+            ctx.VSSetConstantBuffers(0, Context.ProjectionBuffer);
 
             for (int i = 0; i < GlobalDrawCalls.Count; i++) {
                 var drawList = GlobalDrawCalls[i];
@@ -116,8 +116,8 @@ namespace DirectDimensional.Editor.GUI {
                 for (int d = 0; d < drawList.Count; d++) {
                     var call = drawList[d];
 
-                    Marshal.WriteIntPtr(pTexturePtr, call.TexturePointer == IntPtr.Zero ? ImGuiContext.WhiteTexture.DXSRV!._nativePointer : call.TexturePointer);
-                    Marshal.WriteIntPtr(pSamplerPtr, call.SamplerPointer == IntPtr.Zero ? ImGuiContext.WhiteTexture.DXSampler!._nativePointer : call.SamplerPointer);
+                    Marshal.WriteIntPtr(pTexturePtr, call.TexturePointer == IntPtr.Zero ? Context.WhiteTexture.DXSRV!._nativePointer : call.TexturePointer);
+                    Marshal.WriteIntPtr(pSamplerPtr, call.SamplerPointer == IntPtr.Zero ? Context.WhiteTexture.DXSampler!._nativePointer : call.SamplerPointer);
 
                     ctx.PSSetShaderResources(0u, 1, pTexturePtr);
                     ctx.PSSetSamplers(0u, 1, pSamplerPtr);
@@ -136,10 +136,11 @@ namespace DirectDimensional.Editor.GUI {
         /// </summary>
         public static void EndFrame() {
             if (Mouse.LeftPressed) {
-                if (ImGui.HoveringWindow is StandardGuiWindow wnd) {
-                    ImGui.FocusWindow(wnd);
-                }
+                ImGui.FocusWindow(ImGui.HoveringWindow);
             }
+
+            EndFrameCallback?.Invoke();
+            EndFrameCallback = null;
         }
     }
 }

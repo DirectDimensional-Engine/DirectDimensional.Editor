@@ -5,6 +5,28 @@ using System.Collections.Generic;
 using System.Numerics;
 
 namespace DirectDimensional.Editor.GUI {
+    public enum StylingID {
+        /// <summary>
+        /// Define whether to create a scissor rect to cutoff text mesh outside area. Use <seealso cref="bool"/> value.
+        /// </summary>
+        TextMasking,
+
+        /// <summary>
+        /// The size of window content padding. Use <seealso cref="Vector4"/> value. XYZW correspond to Left, Right, Top, Bottom.
+        /// </summary>
+        WindowContentPadding,
+
+        /// <summary>
+        /// The value to move the cursor of Drawing Context between elements. Use <seealso cref="int"/> value.
+        /// </summary>
+        LayoutElementSpacing,
+
+        /// <summary>
+        /// Fallback value if Font cannot found character. Use <seealso cref="char"/> value.
+        /// </summary>
+        TextCharacterFallback,
+    }
+
     public static unsafe class Styling {
         private static readonly Dictionary<StylingID, Stack<IntPtr>> _dicts;
 
@@ -17,9 +39,9 @@ namespace DirectDimensional.Editor.GUI {
             }
 
             Push(StylingID.TextMasking, true);
-            Push(StylingID.SliderHandleRadius, 6);
-            Push(StylingID.SliderHoleSize, 6);
             Push(StylingID.WindowContentPadding, new Vector4(3, 3, 1, 1));
+            Push(StylingID.LayoutElementSpacing, 3);
+            Push(StylingID.TextCharacterFallback, '?');
         }
 
         public static void Push<T>(StylingID id, in T value) where T : unmanaged {

@@ -1,24 +1,17 @@
 ﻿using DirectDimensional.Core;
-using DirectDimensional.Bindings.WinAPI;
-using DirectDimensional.Core.Utilities;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using System.Diagnostics.CodeAnalysis;
-using DirectDimensional.Bindings.Direct3D11;
-
-using static StbTrueTypeSharp.StbTrueType;
+using DirectDimensional.Editor.GUI.Grouping;
+using System.Runtime.CompilerServices;
 
 using DDTexture2D = DirectDimensional.Core.Texture2D;
 
 namespace DirectDimensional.Editor.GUI {
     public static unsafe class ImGui {
         private static readonly Stack<GuiWindow> _windowStack;
+        private static readonly List<GuiWindow> _windows;
 
-        private static readonly List<StandardGuiWindow> _standardWnds;
-        private static readonly TooltipWindow _tooltipWnd;
-
-        internal static List<StandardGuiWindow> StandardWindows => _standardWnds;
-        internal static TooltipWindow TooltipWindow => _tooltipWnd;
+        internal static List<GuiWindow> Windows => _windows;
 
         private static GuiWindow? _focusWindow, _hoveringWindow;
         public static GuiWindow? FocusingWindow => _focusWindow;
@@ -27,8 +20,7 @@ namespace DirectDimensional.Editor.GUI {
 
         static ImGui() {
             _windowStack = new();
-            _standardWnds = new(8);
-            _tooltipWnd = new("__TOOLTIP__");
+            _windows = new(8);
         }
 
         internal static void NewFrame() {
@@ -39,21 +31,31 @@ namespace DirectDimensional.Editor.GUI {
             _windowStack.Clear();
         }
 
-        public static void FocusWindow(StandardGuiWindow? window) {
+        public static void FocusWindow(GuiWindow? window) {
             if (window != null && !window.IsFocusable) return;
 
             _focusWindow = window;
 
             if (window != null) {
-                _standardWnds.Remove(window);
-                _standardWnds.Add(window);
+                _windows.Remove(window);
+                _windows.Add(window);
             }
         }
 
-        public static StandardGuiWindow? SearchStandardWindow(string name) {
-            for (int i = 0; i < _standardWnds.Count; i++) {
-                if (_standardWnds[i].Name == name) {
-                    return _standardWnds[i];
+        public static GuiWindow? SearchWindow(string name) {
+            for (int i = 0; i < _windows.Count; i++) {
+                if (_windows[i].Name == name) {
+                    return _windows[i];
+                }
+            }
+
+            return null;
+        }
+
+        public static T? SearchWindow<T>(string name) where T : GuiWindow {
+            for (int i = 0; i < _windows.Count; i++) {
+                if (_windows[i].Name == name && _windows[i] is T cast) {
+                    return cast;
                 }
             }
 
@@ -64,12 +66,12 @@ namespace DirectDimensional.Editor.GUI {
         /// Query focus window from last window to first window in the list
         /// </summary>
         /// <param name="predicate"></param>
-        public static void QueryFocusWindow(Func<StandardGuiWindow, bool> predicate) {
-            for (int i = _standardWnds.Count - 1; i >= 0; i--) {
-                if (!_standardWnds[i].IsFocusable) continue;
+        public static void QueryFocusWindow(Func<GuiWindow, bool> predicate) {
+            for (int i = _windows.Count - 1; i >= 0; i--) {
+                if (!_windows[i].IsFocusable) continue;
 
-                if (predicate(_standardWnds[i])) {
-                    FocusWindow(_standardWnds[i]);
+                if (predicate(_windows[i])) {
+                    FocusWindow(_windows[i]);
                     break;
                 }
             }
@@ -78,9 +80,9 @@ namespace DirectDimensional.Editor.GUI {
         internal static void UpdateHoveringWindow() {
             var mp = Mouse.Position;
 
-            for (int i = _standardWnds.Count - 1; i >= 0; i--) {
-                var wnd = _standardWnds[i];
-                if (!_standardWnds[i].IsFocusable) continue;
+            for (int i = _windows.Count - 1; i >= 0; i--) {
+                var wnd = _windows[i];
+                if (!_windows[i].IsFocusable) continue;
 
                 if (mp.X >= wnd.Position.X && mp.Y >= wnd.Position.Y) {
                     if (mp.X < wnd.Position.X + wnd.Size.X && mp.Y < wnd.Position.Y + wnd.Size.Y) {
@@ -124,23 +126,45 @@ namespace DirectDimensional.Editor.GUI {
             }
         }
 
-#pragma warning disable CS8774
-        [MemberNotNull(nameof(CurrentWindow))]
-        public static void BeginStandardWindow(string name, StandardWindowFlags flags = StandardWindowFlags.None) {
-            if (_windowStack.Count != 0) {
-                Logger.Error("Cannot Begin Standard Window as the window stack isn't empty.");
-                return;
-            }
+        private static void ClearNextWindowData() {
+            NextWindowX = NextWindowY = NextWindowWidth = NextWindowHeight = null;
+        }
 
-            if (SearchStandardWindow(name) is not StandardGuiWindow wnd) {
+#pragma warning disable CS8774
+        /// <summary>
+        /// <para>Render a standard window.</para>
+        /// <br>Notes:</br>
+        /// <br>1. Call <seealso cref="EndStandardWindow"/> at the end of window.</br>
+        /// <br>2. Avoid using specialized flags built like <seealso cref="WindowFlags.Tooltip"/> or</br>
+        /// </summary>
+        /// <param name="name">Name of the window.</param>
+        /// <param name="flags">Special flags to change how window works</param>
+        [MemberNotNull(nameof(CurrentWindow))]
+        public static void BeginStandardWindow(string name, WindowFlags flags = WindowFlags.None) {
+            var wnd = SearchWindow(name);
+            if (wnd == null) {
                 wnd = new(name);
-                _standardWnds.Add(wnd);
+
+                wnd.Size = Configuration.NewWindowSize;
+                _windows.Add(wnd);
             }
 
             wnd.Flags = flags;
 
+            bool contentFitX = (flags & WindowFlags.AutoContentFitX) == WindowFlags.AutoContentFitX;
+            bool contentFitY = (flags & WindowFlags.AutoContentFitY) == WindowFlags.AutoContentFitY;
+
             AssignNextWindowPos(wnd);
-            AssignNextWindowSize(wnd);
+
+            if (!contentFitX && NextWindowWidth != null) {
+                wnd.Size = new(NextWindowWidth.Value, wnd.Size.Y);
+                NextWindowWidth = null;
+            }
+
+            if (!contentFitY && NextWindowHeight != null) {
+                wnd.Size = new(wnd.Size.X, NextWindowHeight.Value);
+                NextWindowHeight = null;
+            }
 
             _windowStack.Push(wnd);
 
@@ -155,132 +179,172 @@ namespace DirectDimensional.Editor.GUI {
             bool hasTitlebar = wnd.HasTitlebar;
             bool hasBackground = wnd.RenderBackground;
 
-            if (hasTitlebar && ImGuiBehaviour.Button("__WND_TITLEBAR_DRAGMODE__", wnd.TitlebarRect, ButtonFlags.DetectHeld, out _)) {
+            if (hasTitlebar && Behaviours.Button("__WND_TITLEBAR_DRAGMODE__", wnd.TitlebarRect, ButtonFlags.DetectHeld, out _)) {
                 wnd.Position += Mouse.Move;
             }
 
-            if ((flags & StandardWindowFlags.DisableResize) != StandardWindowFlags.DisableResize) {
-                if (ImGuiBehaviour.Button("__RESIZE1__", new Rect(wnd.Position + new Vector2(0, wnd.Size.Y - StandardGuiWindow.ResizeHandleSize), StandardGuiWindow.ResizeHandleSize), ButtonFlags.DetectHeld, out _)) {
-                    var move = Mouse.Move;
+            // Store old display rect size so that 
+            var rdisplayLast = wnd.DisplayRect;
 
-                    wnd.Position += new Vector2(move.X, 0);
-                    wnd.Size += new Vector2(-move.X, move.Y);
-                }
+            if (contentFitX && contentFitY) {
+                wnd.DisplayRect = new Rect(wnd.DisplayRect.Position, wnd.Context.ContentSize);
+            } else {
+                if ((flags & WindowFlags.DisableResize) != WindowFlags.DisableResize) {
+                    if (Behaviours.Button("__RESIZE_L__", new Rect(wnd.Position + new Vector2(0, wnd.Size.Y - GuiWindow.ResizeHandleSize), GuiWindow.ResizeHandleSize), ButtonFlags.DetectHeld, out _)) {
+                        Vector2 move = default;
 
-                if (ImGuiBehaviour.Button("__RESIZE2__", new Rect(wnd.Position + wnd.Size - new Vector2(StandardGuiWindow.ResizeHandleSize), StandardGuiWindow.ResizeHandleSize), ButtonFlags.DetectHeld, out _)) {
-                    wnd.Size += Mouse.Move;
-                }
-            }
+                        if (!contentFitX) move.X = Mouse.Move.X;
+                        if (!contentFitY) move.Y = Mouse.Move.Y;
 
-            bool hasScrollbar = (flags & StandardWindowFlags.DisableScrollbar) != StandardWindowFlags.DisableScrollbar;
-            
-            var rdisplay = wnd.DisplayRect;
-            if (hasScrollbar || hasTitlebar || hasBackground) {
-                wnd.BeginDrawComposite();
+                        wnd.Position += new Vector2(move.X, 0);
+                        wnd.Size += new Vector2(-move.X, move.Y);
+                    }
 
-                if (hasTitlebar) {
-                    ImGuiRender.AddCompositeRect(new Rect(wnd.Position, new Vector2(wnd.Size.X, StandardGuiWindow.TitlebarHeight)), Coloring.Read(ColoringID.WindowTitle));
-                    if (hasBackground) ImGuiRender.AddCompositeRect(new(wnd.Position + new Vector2(0, StandardGuiWindow.TitlebarHeight), wnd.Size - new Vector2(0, StandardGuiWindow.TitlebarHeight)), Coloring.Read(ColoringID.WindowBackground));
-                } else {
-                    if (hasBackground) ImGuiRender.AddCompositeRect(new(wnd.Position, wnd.Size), Coloring.Read(ColoringID.WindowBackground));
-                }
+                    if (Behaviours.Button("__RESIZE_R__", new Rect(wnd.Position + wnd.Size - new Vector2(GuiWindow.ResizeHandleSize), GuiWindow.ResizeHandleSize), ButtonFlags.DetectHeld, out _)) {
+                        Vector2 move = default;
 
-                if (hasScrollbar) {
-                    var scontent = wnd.Context.ContentSize;
-                    var rclient = wnd.ClientRect;
+                        if (!contentFitX) move.X = Mouse.Move.X;
+                        if (!contentFitY) move.Y = Mouse.Move.Y;
 
-                    wnd.EnableScrollY = scontent.Y > rdisplay.Height;
-                    if (wnd.EnableScrollY) {
-                        var scrollbarArea = new Rect(rclient.Max.X - StandardGuiWindow.HorizontalScrollbarWidth, rclient.Position.Y, StandardGuiWindow.HorizontalScrollbarWidth, rclient.Size.Y - StandardGuiWindow.ResizeHandleSize);
-
-                        float scrollY = wnd.Scrolling.Y;
-                        if (ImGuiBehaviour.VerticalScrollbar("__SCROLLBAR_Y__", scrollbarArea, rdisplay.Height, scontent.Y, ref scrollY, out var handleRect)) {
-                            wnd.Scrolling = new(wnd.Scrolling.X, scrollY);
-                        }
-
-                        ImGuiRender.AddCompositeRect(scrollbarArea, Color32.Green);
-                        ImGuiRender.AddCompositeRect(handleRect, Color32.Blue);
-                    } else {
-                        wnd.Scrolling = new(wnd.Scrolling.X, 0);
+                        wnd.Size += move;
                     }
                 }
 
-                wnd.EndDrawComposite();
+                var dr = wnd.DisplayRect;
 
-                if (hasBackground) ImGuiRender.DrawFrame(new Rect(wnd.Position, wnd.Size), Coloring.Read(ColoringID.WindowBorder));
+                if (contentFitX) wnd.DisplayRect = new Rect(dr.X, dr.Y, wnd.Context.ContentSize.X, dr.Height);
+                if (contentFitY) wnd.DisplayRect = new Rect(dr.X, dr.Y, dr.Width, wnd.Context.ContentSize.Y);
             }
 
+            bool hasHScrollbar = !contentFitX && wnd.HasHScrollbar;
+            bool hasVScrollbar = !contentFitY && wnd.HasVScrollbar;
+            var rdisplay = wnd.DisplayRect;
+
+            wnd.BeginDrawComposite();
+
+            var scontent = wnd.Context.ContentSize;
+            var rclient = wnd.ClientRect;
+
+            if (hasTitlebar) {
+                Drawings.AddCompositeRect(wnd.TitlebarRect, Coloring.Read(ColoringID.WindowTitle));
+
+                if (hasBackground) Drawings.AddCompositeRect(new(wnd.Position + new Vector2(0, GuiWindow.TitlebarHeight), wnd.Size - new Vector2(0, GuiWindow.TitlebarHeight)), Coloring.Read(ColoringID.WindowBackground));
+            } else {
+                if (hasBackground) Drawings.AddCompositeRect(new(wnd.Position, wnd.Size), Coloring.Read(ColoringID.WindowBackground));
+            }
+
+            // Components
+            {
+                wnd.EnableScrollX = scontent.X > rdisplayLast.Width + 3 && hasHScrollbar;
+                if (hasHScrollbar) {
+                    if (wnd.EnableScrollX) {
+                        var hscrollArea = new Rect(rclient.Position.X, rclient.Max.Y - GuiWindow.ScrollbarSize, rclient.Width - GuiWindow.ResizeHandleSize, GuiWindow.ScrollbarSize);
+
+                        float scrollX = wnd.Scrolling.X;
+                        if (Behaviours.HorizontalScrollbar("__SCROLLBAR_X__", hscrollArea, rdisplay.Width, scontent.X, ref scrollX, out var hscrollHandle)) {
+                            wnd.Scrolling = new(scrollX, wnd.Scrolling.Y);
+                        }
+
+                        Drawings.AddCompositeRect(hscrollArea, Color32.Green);
+                        Drawings.AddCompositeRect(hscrollHandle, Color32.Blue);
+                    } else {
+                        wnd.Scrolling = new(0, wnd.Scrolling.X);
+                    }
+                } else {
+                    wnd.EnableScrollX = false;
+                }
+
+                wnd.EnableScrollY = scontent.Y > rdisplayLast.Height + 3 && hasVScrollbar;
+                if (wnd.EnableScrollY) {
+                    var vscrollArea = new Rect(rclient.Max.X - GuiWindow.ScrollbarSize, rclient.Position.Y, GuiWindow.ScrollbarSize, rclient.Height - GuiWindow.ResizeHandleSize);
+
+                    float scrollY = wnd.Scrolling.Y;
+                    if (Behaviours.VerticalScrollbar("__SCROLLBAR_Y__", vscrollArea, rdisplay.Height, scontent.Y, ref scrollY, out var vscrollHandle)) {
+                        wnd.Scrolling = new(wnd.Scrolling.X, scrollY);
+                    }
+
+                    Drawings.AddCompositeRect(vscrollArea, Color32.Green);
+                    Drawings.AddCompositeRect(vscrollHandle, Color32.Blue);
+                } else {
+                    wnd.Scrolling = new(wnd.Scrolling.X, 0);
+                }
+            }
+
+            wnd.EndDrawComposite();
+
+            if (hasTitlebar) {
+                var r = wnd.TitlebarRect;
+                r.Extrude(-3, 0);
+
+                Styling.Push(StylingID.TextMasking, true);
+                Widgets.Text(r, wnd.DisplayName, HorizontalTextAnchor.Left, VerticalTextAnchor.Middle);
+                Styling.Pop(StylingID.TextMasking);
+            }
+
+            if (wnd.HasBorder) Drawings.DrawFrame(new Rect(wnd.Position, wnd.Size), Coloring.Read(ColoringID.WindowBorder));
+
             rdisplay = wnd.DisplayRect;
-            ImGuiLowLevel.BeginCoordinateOffset(rdisplay.Position - wnd.Scrolling);
-            ImGuiLowLevel.BeginScissorRect(rdisplay);
+            LowLevel.BeginCoordinateOffset(rdisplay.Position - wnd.Scrolling);
+            LowLevel.BeginScissorRect(rdisplay);
 
             wnd.Context.Reset();
         }
 #pragma warning restore CS8774
 
         public static void EndStandardWindow() {
-            if (CurrentWindow == null || CurrentWindow.Type != WindowType.Standard) return;
+            if (CurrentWindow == null) return;
 
-            // Padding to the bottom content
-            CurrentWindow.Context.GetRect(4);
+            CurrentWindow.EndWindowCall();
 
-            ImGuiLowLevel.EndScissorRect();
-            ImGuiLowLevel.EndCoordinateOffset();
+            LowLevel.EndScissorRect();
+            LowLevel.EndCoordinateOffset();
 
             Identifier.Pop();
 
             _windowStack.Pop();
         }
 
-        /// <summary>
-        /// Begin tooltip window when the mouse is hovering over the area. Remember to call <seealso cref="EndTooltipWindow"/> if the method returns true.
-        /// </summary>
-        /// <param name="hoveringArea">Hovering area relative to the last window</param>
-        /// <returns>Whether the tooltip is active</returns>
-        //public static bool BeginTooltipWindow(Rect hoveringArea) {
-        //    if (CurrentWindow == null || CurrentWindow.Type == WindowType.Tooltip) {
-        //        Logger.Warn("Cannot begin Tooltip window as the current window is invalid (Null or was a Tooltip window)");
+        public static void BeginTooltip(string name) {
+            BeginTooltip(name, new(0, 20));
+        }
+        public static void BeginTooltip(string name, Vector2 mouseOffset) {
+            LowLevel.BeginRectGroupFullscreen();
+
+            var mp = Mouse.Position;
+
+            NextWindowX = mp.X + mouseOffset.X;
+            NextWindowY = mp.Y + mouseOffset.Y;
+            BeginStandardWindow(name, WindowFlags.Tooltip);
+            CurrentWindow.Priority = 100000;
+        }
+        public static void EndTooltip() {
+            EndStandardWindow();
+
+            LowLevel.EndRectGroup();
+        }
+
+        //public static void InitializePopupContext(string name) {
+        //    if (CurrentWindow == null) {
+        //        Logger.Log("Cannot initialize popup context if no Standard Window is taking place");
+        //        return;
+        //    }
+        //}
+
+        //public static bool BeginPopup(string name) {
+        //    var id = Identifier.Calculate(name);
+        //    if (!opened) {
+        //        ClearNextWindowData();
         //        return false;
         //    }
 
-        //    if (hoveringArea.Collide(ImGuiInput.MousePosition)) {
-        //        //Styling.Push(StylingID.WindowMinimumSize, new Vector2(5, 16));
+        //    BeginStandardWindow(name, WindowFlags.Popup);
+        //    CurrentWindow.Priority = 50000;
 
-        //        _tooltipWnd.Position = Mouse.Position + new Vector2(12, 16);
-
-        //        AssignNextWindowSize(_tooltipWnd);
-
-        //        _windowStack.Push(_tooltipWnd);
-
-        //        Rect clientRect = new(_tooltipWnd.Position, _tooltipWnd.Size);
-
-        //        ImGuiLowLevel.BeginFullscreenScissorRect();
-        //        ImGuiLowLevel.BeginCoordinateOffset(-ImGuiLowLevel.CoordinateOffset);
-
-        //        ImGuiRender.DrawRect(clientRect, ImGuiColoring.Read(ColoringID.WindowBackground));
-        //        ImGuiRender.DrawFrame(clientRect, ImGuiColoring.Read(ColoringID.WindowBorder));
-
-        //        ImGuiLowLevel.BeginCoordinateOffset(clientRect.Position);
-        //        ImGuiLowLevel.BeginScissorRect(clientRect);
-
-        //        _tooltipWnd.Context.Reset();
-
-        //        return true;
-        //    }
-
-        //    return false;
+        //    return true;
         //}
-        //public static void EndTooltipWindow() {
-        //    if (CurrentWindow == null || CurrentWindow.Type != WindowType.Tooltip) return;
 
-        //    //Styling.Pop(StylingID.WindowMinimumSize);
-
-        //    ImGuiLowLevel.EndScissorRect();
-        //    ImGuiLowLevel.EndCoordinateOffset();
-        //    ImGuiLowLevel.EndCoordinateOffset();
-        //    ImGuiLowLevel.EndScissorRect();
-
-        //    _windowStack.Pop();
+        //public static void EndPopup() {
+        //    EndStandardWindow();
         //}
 
         /// <summary>

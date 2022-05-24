@@ -12,7 +12,7 @@ using D3D11Buffer = DirectDimensional.Bindings.Direct3D11.Buffer;
 using DDTexture2D = DirectDimensional.Core.Texture2D;
 
 namespace DirectDimensional.Editor.GUI {
-    internal static unsafe class ImGuiContext {
+    internal static unsafe class Context {
         public static ComArray<D3D11Buffer> ProjectionBuffer = null!;
 
         public static ComArray<D3D11Buffer> VertexBuffers { get; private set; }
@@ -32,7 +32,7 @@ namespace DirectDimensional.Editor.GUI {
 
         public static DepthStencilState DepthState { get; private set; } = null!;
 
-        static ImGuiContext() {
+        static Context() {
             Vertices = new(5000);
             Indices = new(5000);
 

@@ -1,6 +1,7 @@
 ﻿using System;
 
 namespace DirectDimensional.Editor.GUI {
+#pragma warning disable CA1069
     [Flags]
     public enum ResizingBorderDirections {
         None = 0,
@@ -25,12 +26,8 @@ namespace DirectDimensional.Editor.GUI {
         CharacterWise, WordWise,
     }
 
-    public enum WindowType {
-        Undefined = -1, Standard = 0, DropdownMenu, Tooltip,
-    }
-
     [Flags]
-    public enum StandardWindowFlags {
+    public enum WindowFlags {
         None = 0,
 
         DisableTitlebar = 1 << 0,
@@ -38,11 +35,22 @@ namespace DirectDimensional.Editor.GUI {
         PreventFocus = 1 << 2,
 
         DisableBackground = 1 << 3,
-        DisableScrollbar = 1 << 4,
 
-        //TooltipWindow = RemoveTitlebar | PreventResize | PreventFocus,
+        DisableVScrollbar = 1 << 4,
+        DisableHScrollbar = 1 << 5,
+        DisableScrollbars = DisableVScrollbar | DisableHScrollbar,
 
-        WindowlessGUI = DisableTitlebar | DisableResize | DisableBackground | DisableScrollbar,
+        AutoContentFitX = 1 << 6,
+        AutoContentFitY = 1 << 7,
+
+        AutoContentFit = AutoContentFitX | AutoContentFitY,
+
+        DisableBorder = 1 << 8,
+
+        Tooltip = DisableTitlebar | DisableResize | PreventFocus | AutoContentFit | DisableScrollbars,
+        Popup = DisableTitlebar | DisableResize | AutoContentFit | DisableScrollbars,
+
+        Windowless = DisableTitlebar | DisableResize | DisableBackground | DisableScrollbars,
     }
 
     [Flags]
@@ -54,6 +62,8 @@ namespace DirectDimensional.Editor.GUI {
         AllowMiddleMouse = 1 << 2,
 
         AllMouse = AllowRightMouse | AllowMiddleMouse,
+
+        NoTexture = 1 << 4,
 
         DetectHeld = 1 << 3,
     }
@@ -102,4 +112,5 @@ namespace DirectDimensional.Editor.GUI {
     public enum VerticalTextAnchor {
         Top, Middle, Bottom,
     }
+#pragma warning restore CA1069
 }

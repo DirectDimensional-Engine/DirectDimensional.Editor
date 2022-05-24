@@ -9,7 +9,7 @@ namespace DirectDimensional.Editor.GUI {
     /// <summary>
     /// Backend to control every special control function of ImGui. Not recommended to use.
     /// </summary>
-    public static unsafe class ImGuiLowLevel {
+    public static unsafe class LowLevel {
         private static readonly Stack<RECT> _scissorRectStack;
 
         private static Vector2 _coordinate;
@@ -39,6 +39,13 @@ namespace DirectDimensional.Editor.GUI {
                 };
             }
         }
+        public static Rect CurrentScissorRectAsDDRect {
+            get {
+                var r = CurrentScissorRect;
+
+                return new(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+            }
+        }
 
         public readonly struct CoordinateOffsetScope : IDisposable {
             public void Dispose() {
@@ -52,33 +59,33 @@ namespace DirectDimensional.Editor.GUI {
 
         public static Vector2 CurrentCoordinateOffset => _coordinate;
 
-        public static int VertexCount => ImGuiContext.Vertices.Count;
-        public static int IndexCount => ImGuiContext.Indices.Count;
+        public static int VertexCount => Context.Vertices.Count;
+        public static int IndexCount => Context.Indices.Count;
 
-        static ImGuiLowLevel() {
+        static LowLevel() {
             _coordinateStack = new();
             _scissorRectStack = new(12);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void AddVertex(Vertex vertex) {
-            ImGuiContext.Vertices.Add(vertex);
+            Context.Vertices.Add(vertex);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void AddVertices(params Vertex[] vertices) {
-            ImGuiContext.Vertices.AddRange(vertices);
+            Context.Vertices.AddRange(vertices);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void AddIndex(int index) {
-            ImGuiContext.Indices.Add((ushort)index);
+            Context.Indices.Add((ushort)index);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static void AddIndices(params int[] indices) {
             for (int i = 0; i < indices.Length; i++) {
-                ImGuiContext.Indices.Add((ushort)indices[i]);
+                Context.Indices.Add((ushort)indices[i]);
             }
         }
 
@@ -96,8 +103,8 @@ namespace DirectDimensional.Editor.GUI {
                 var rm = rect.Max;
 
                 RECT r = new() {
-                    Left = (int)Math.Max(rect.Position.X, peek.Left),
-                    Top = (int)Math.Max(rect.Position.Y, peek.Top),
+                    Left = (int)Math.Max(rect.X, peek.Left),
+                    Top = (int)Math.Max(rect.Y, peek.Top),
                 };
 
                 r.Right = (int)Math.Min(rm.X, peek.Right);
@@ -112,8 +119,8 @@ namespace DirectDimensional.Editor.GUI {
                 var max = rect.Max;
 
                 _scissorRectStack.Push(new RECT() {
-                    Left = (int)rect.Position.X,
-                    Top = (int)rect.Position.Y,
+                    Left = (int)rect.X,
+                    Top = (int)rect.Y,
 
                     Right = (int)max.X,
                     Bottom = (int)max.Y,
@@ -134,7 +141,6 @@ namespace DirectDimensional.Editor.GUI {
             _coordinateStack.Push(-_coordinate);
             _coordinate = default;
         }
-
         public static bool EndCoordinateOffset() {
             if (_coordinateStack.TryPop(out var vector)) {
                 _coordinate -= vector;
@@ -143,28 +149,48 @@ namespace DirectDimensional.Editor.GUI {
             return false;
         }
 
+        public static void BeginRectGroupFullscreen() {
+            BeginScissorRect(new Rect(0, 0, 1000000, 1000000), false);
+            BeginCoordinateOffset(-_coordinate);
+        }
+
+        public static void BeginRectGroupAbsolute(Rect rect, bool clipLast = true) {
+            BeginScissorRect(rect, clipLast);
+            BeginCoordinateOffset(rect.Position - _coordinate);
+        }
+
+        public static void BeginRectGroupRelative(Rect rect, bool clipLast = true) {
+            BeginScissorRect(new Rect(rect.Position + _coordinate, rect.Size), clipLast);
+            BeginCoordinateOffset(rect.Position);
+        }
+
+        public static void EndRectGroup() {
+            EndCoordinateOffset();
+            EndScissorRect();
+        }
+
         public static void DrawTexturedRect(Vertex topLeft, Vertex topRight, Vertex bottomRight, Vertex bottomLeft, ShaderResourceView? srv, SamplerState? sampler) {
             if (ImGui.CurrentWindow == null) return;
             
-            var vcount = ImGuiContext.Vertices.Count;
-            var icount = ImGuiContext.Indices.Count;
+            var vcount = Context.Vertices.Count;
+            var icount = Context.Indices.Count;
 
             topLeft.Position += CurrentCoordinateOffset;
             topRight.Position += CurrentCoordinateOffset;
             bottomRight.Position += CurrentCoordinateOffset;
             bottomLeft.Position += CurrentCoordinateOffset;
 
-            ImGuiContext.Vertices.Add(topLeft);
-            ImGuiContext.Vertices.Add(topRight);
-            ImGuiContext.Vertices.Add(bottomRight);
-            ImGuiContext.Vertices.Add(bottomLeft);
+            Context.Vertices.Add(topLeft);
+            Context.Vertices.Add(topRight);
+            Context.Vertices.Add(bottomRight);
+            Context.Vertices.Add(bottomLeft);
 
-            ImGuiContext.Indices.Add((ushort)vcount);
-            ImGuiContext.Indices.Add((ushort)(vcount + 1));
-            ImGuiContext.Indices.Add((ushort)(vcount + 2));
-            ImGuiContext.Indices.Add((ushort)(vcount + 2));
-            ImGuiContext.Indices.Add((ushort)(vcount + 3));
-            ImGuiContext.Indices.Add((ushort)vcount);
+            Context.Indices.Add((ushort)vcount);
+            Context.Indices.Add((ushort)(vcount + 1));
+            Context.Indices.Add((ushort)(vcount + 2));
+            Context.Indices.Add((ushort)(vcount + 2));
+            Context.Indices.Add((ushort)(vcount + 3));
+            Context.Indices.Add((ushort)vcount);
 
             ImGui.CurrentWindow.DrawCalls.Add(new DrawCall {
                 IndexCount = 6,

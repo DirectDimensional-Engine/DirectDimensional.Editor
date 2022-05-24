@@ -3,7 +3,7 @@ using System.Numerics;
 using DirectDimensional.Core;
 
 namespace DirectDimensional.Editor.GUI {
-    public static class ImGuiInput {
+    public static class Input {
         private static float _doubleClickThreshold = 0.3f;
 
         public static float DoubleClickThreshold {
@@ -12,9 +12,9 @@ namespace DirectDimensional.Editor.GUI {
         }
 
         /// <summary>
-        /// Mouse position with coordinate offset caused by <seealso cref="ImGuiLowLevel.BeginCoordinateOffset(Vector2)"/>
+        /// Mouse position with coordinate offset caused by <seealso cref="LowLevel.BeginCoordinateOffset(Vector2)"/>
         /// </summary>
-        public static Vector2 MousePosition => Mouse.Position - ImGuiLowLevel.CurrentCoordinateOffset;
+        public static Vector2 MousePosition => Mouse.Position - LowLevel.CurrentCoordinateOffset;
 
         private static bool _dbclkL, _dbclkR, _dbclkM;
         public static bool LeftDoubleClick => _dbclkL;
