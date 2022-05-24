@@ -15,8 +15,6 @@ namespace DirectDimensional.Editor {
             Engine.NewFrame();
             Engine.Update();
 
-            ImGui.EndStandardWindow();
-
             Engine.Render();
             Engine.EndFrame();
         }
